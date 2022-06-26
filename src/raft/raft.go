@@ -3,13 +3,11 @@ package raft
 import (
 	//	"bytes"
 
-	"bytes"
-	"log"
 	"sync"
 	"time"
 
 	//	"6.824/labgob"
-	"6.824/labgob"
+
 	"6.824/labrpc"
 )
 
@@ -56,78 +54,27 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		heartbeatTimer: time.NewTimer(StableHeartbeatTimeout()),
 		electionTimer:  time.NewTimer(RandomizedElectionTimeout()),
 	}
-	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 	rf.applyCond = sync.NewCond(&rf.mu)
+
 	lastLog := rf.getLastLog()
 	for i := 0; i < len(peers); i++ {
 		rf.matchIndex[i] = 0
 		rf.nextIndex[i] = lastLog.Index + 1
 		if i != rf.me {
 			rf.replicatorCond[i] = sync.NewCond(&sync.Mutex{})
-			// start replicator goroutine to replicate entries in batch
+			// start a peer's replicator goroutine to replicate entries in the background
 			go rf.replicator(i)
 		}
 	}
 	// start ticker goroutine to start elections
 	go rf.ticker()
 	// start applier goroutine to push committed logs into applyCh exactly once
-	//2b
 	go rf.applier()
-
 	return rf
 }
 
-func (rf *Raft) persist() {
-	w := new(bytes.Buffer)
-	e := labgob.NewEncoder(w)
-	e.Encode(rf.currentTerm)
-	e.Encode(rf.votedFor)
-	e.Encode(rf.logs)
-	data := w.Bytes()
-	rf.persister.SaveRaftState(data)
-}
-
-func (rf *Raft) readPersist(data []byte) {
-	if data == nil || len(data) < 1 { // bootstrap without any state?
-		return
-	}
-	r := bytes.NewBuffer(data)
-	d := labgob.NewDecoder(r)
-	var CurrentTerm int
-	var VotedFor int
-	var Logs []Entry
-	if d.Decode(&CurrentTerm) != nil ||
-		d.Decode(&VotedFor) != nil ||
-		d.Decode(&Logs) != nil {
-		log.Fatal("error")
-	} else {
-		rf.currentTerm = CurrentTerm
-		rf.votedFor = VotedFor
-		rf.logs = Logs
-	}
-}
-
-//
-// A service wants to switch to snapshot.  Only do so if Raft hasn't
-// have more recent info since it communicate the snapshot on applyCh.
-//
-func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
-
-	// Your code here (2D).
-
-	return true
-}
-
-// the service says it has created a snapshot that has
-// all info up to and including index. this means the
-// service no longer needs the log through (and including)
-// that index. Raft should now trim its log as much as possible.
-func (rf *Raft) Snapshot(index int, snapshot []byte) {
-	// Your code here (2D).
-
-}
-
+//receive appending command from upper KV layer
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -166,19 +113,25 @@ func (rf *Raft) ticker() {
 	}
 }
 
+func (rf *Raft) needReplicating(peer int) bool {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	return rf.state == StateLeader && rf.matchIndex[peer] < rf.getLastLog().Index
+}
 func (rf *Raft) replicator(peer int) {
 	rf.replicatorCond[peer].L.Lock()
 	defer rf.replicatorCond[peer].L.Unlock()
 	for !rf.killed() {
-		// if there is no need to replicate entries for this peer, just release CPU and wait other goroutine's signal if service adds new Command
-		// if this peer needs replicating entries, this goroutine will call replicateOneRound(peer) multiple times until this peer catches up, and then wait
+		// we might recevied N Appending request, but we don't need
+		// to do len(peers)*N RPC, because first few RPCs might push
+		// all the new entry from logs to other replica, then needReplicating
+		// will be false
 		for !rf.needReplicating(peer) {
 			rf.replicatorCond[peer].Wait()
 			if rf.killed() {
 				return
 			}
 		}
-		// maybe a pipeline mechanism is better to trade-off the memory usage and catch up time
 		rf.replicateOneRound(peer)
 	}
 }
@@ -213,4 +166,24 @@ func (rf *Raft) applier() {
 		rf.lastApplied = Max(rf.lastApplied, commitIndex)
 		rf.mu.Unlock()
 	}
+}
+
+//
+// A service wants to switch to snapshot.  Only do so if Raft hasn't
+// have more recent info since it communicate the snapshot on applyCh.
+//
+func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
+
+	// Your code here (2D).
+
+	return true
+}
+
+// the service says it has created a snapshot that has
+// all info up to and including index. this means the
+// service no longer needs the log through (and including)
+// that index. Raft should now trim its log as much as possible.
+func (rf *Raft) Snapshot(index int, snapshot []byte) {
+	// Your code here (2D).
+
 }
