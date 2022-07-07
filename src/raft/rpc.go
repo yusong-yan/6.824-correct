@@ -1,9 +1,9 @@
 package raft
 
 const (
-	StateLeader = iota + 1
-	StateCandidate
-	StateFollower
+	Leader = iota + 1
+	Cand
+	Follwer
 )
 const (
 	DidNotWin = iota + 1
@@ -28,7 +28,6 @@ type ApplyMsg struct {
 	Command      interface{}
 	CommandValid bool
 	CommandIndex int
-	CommandTerm  int
 
 	// For 2D:
 	SnapshotValid bool
@@ -54,6 +53,7 @@ type ClientMessageReply struct {
 }
 
 type AppendEntriesArgs struct {
+	Job          int
 	Term         int
 	LeaderId     int
 	Entries      []Entry
@@ -63,13 +63,13 @@ type AppendEntriesArgs struct {
 }
 
 type AppendEntriesReply struct {
-	ConflictIndex int
-	Term          int
-	Success       bool
+	LastIndex int
+	Term      int
+	Success   bool
 }
 
 type RequestVoteArgs struct {
-	CandidateId  int
+	PeerId       int
 	Term         int
 	LastLogIndex int
 	LastLogTerm  int

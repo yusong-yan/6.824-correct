@@ -660,36 +660,36 @@ func (cfg *config) LogSize() int {
 	return logsize
 }
 
-func (cfg *config) PrintAllInformation() {
-	println("\nCurrent Rafts")
-	println("============================")
-	for i := 0; i < cfg.n; i++ {
-		if cfg.connected[i] {
-			Term, State := cfg.rafts[i].GetState2()
-			println("Raft", i, " in term", Term, " as ", State)
-			print("      log: ")
-			cfg.printLog(cfg.rafts[i])
-			println()
+// func (cfg *config) PrintAllInformation() {
+// 	println("\nCurrent Rafts")
+// 	println("============================")
+// 	for i := 0; i < cfg.n; i++ {
+// 		if cfg.connected[i] {
+// 			Term, State := cfg.rafts[i].GetState2()
+// 			println("Raft", i, " in term", Term, " as ", State)
+// 			print("      log: ")
+// 			cfg.printLog(cfg.rafts[i])
+// 			println()
 
-		}
-	}
-	println("============================")
-	cfg.printStateMachine()
-}
+// 		}
+// 	}
+// 	println("============================")
+// 	cfg.printStateMachine()
+// }
 
-func (cfg *config) printLog(raft *Raft) {
-	for i := 0; i < len(raft.raftLog.getLogs()); i++ {
-		fmt.Print(raft.raftLog.getLogs()[i].Command, " ")
-	}
-}
+// func (cfg *config) printLog(raft *Raft) {
+// 	for i := 0; i < len(raft.raftLog.getLogs()); i++ {
+// 		fmt.Print(raft.raftLog.getLogs()[i].Command, " ")
+// 	}
+// }
 
-func (cfg *config) printStateMachine() {
-	println("State Machine")
-	for _, v := range cfg.logs {
-		for i := 1; i < len(v)+1; i++ {
-			fmt.Print(v[i], " ")
-		}
-		println()
-	}
-	println()
-}
+// func (cfg *config) printStateMachine() {
+// 	println("State Machine")
+// 	for _, v := range cfg.logs {
+// 		for i := 1; i < len(v)+1; i++ {
+// 			fmt.Print(v[i], " ")
+// 		}
+// 		println()
+// 	}
+// 	println()
+// }
