@@ -18,10 +18,10 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	applyCh        chan ApplyMsg
-	applyCond      *sync.Cond   // used to wakeup applier goroutine after committing new entries
-	replicatorCond []*sync.Cond // used to signal replicator goroutine to batch replicating entries
-	state          int
+	applyCh       chan ApplyMsg
+	applyCond     *sync.Cond   // used to wakeup applier goroutine after committing new entries
+	tryAppendCond []*sync.Cond // used to signal replicator goroutine to batch replicating entries
+	state         int
 
 	currentTerm int
 	votedFor    int
@@ -44,7 +44,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		me:             me,
 		dead:           0,
 		applyCh:        applyCh,
-		replicatorCond: make([]*sync.Cond, len(peers)),
+		tryAppendCond:  make([]*sync.Cond, len(peers)),
 		state:          StateFollower,
 		currentTerm:    0,
 		votedFor:       -1,
@@ -62,9 +62,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		rf.matchIndex[i] = 0
 		rf.nextIndex[i] = lastLogIndex + 1
 		if i != rf.me {
-			rf.replicatorCond[i] = sync.NewCond(&sync.Mutex{})
+			rf.tryAppendCond[i] = sync.NewCond(&sync.Mutex{})
 			// start a peer's replicator goroutine to replicate entries in the background
-			go rf.replicator(i)
+			go rf.appendThread(i)
 		}
 	}
 	// start ticker goroutine to start elections
@@ -113,26 +113,27 @@ func (rf *Raft) ticker() {
 	}
 }
 
-func (rf *Raft) needReplicating(peer int) bool {
+func (rf *Raft) needAppend(peer int) bool {
 	rf.mu.RLock()
 	defer rf.mu.RUnlock()
 	return rf.state == StateLeader && rf.matchIndex[peer] < rf.raftLog.lastIndex()
 }
-func (rf *Raft) replicator(peer int) {
-	rf.replicatorCond[peer].L.Lock()
-	defer rf.replicatorCond[peer].L.Unlock()
+
+func (rf *Raft) appendThread(peer int) {
+	rf.tryAppendCond[peer].L.Lock()
+	defer rf.tryAppendCond[peer].L.Unlock()
 	for !rf.killed() {
 		// we might recevied N Appending request, but we don't need
 		// to do len(peers)*N RPC, because first few RPCs might push
 		// all the new entry from logs to other replica, then needReplicating
 		// will be false
-		for !rf.needReplicating(peer) {
-			rf.replicatorCond[peer].Wait()
+		for !rf.needAppend(peer) {
+			rf.tryAppendCond[peer].Wait()
 			if rf.killed() {
 				return
 			}
 		}
-		rf.replicateOneRound(peer)
+		rf.appendOneRound(peer)
 	}
 }
 

@@ -3,23 +3,12 @@
 set -eu
 
 REFERENCE_FILES=(
-    # lab 1
-    src/mrapps/crash.go
-    src/mrapps/indexer.go
-    src/mrapps/mtiming.go
-    src/mrapps/nocrash.go
-    src/mrapps/rtiming.go
-    src/mrapps/wc.go
-    src/main/mrsequential.go
-    src/main/mrcoordinator.go
-    src/main/mrworker.go
-
     # lab 2
     src/raft/persister.go
     src/raft/test_test.go
     src/raft/config.go
     src/labrpc/labrpc.go
-
+··
     # lab 3
     src/kvraft/test_test.go
     src/kvraft/config.go
@@ -54,7 +43,6 @@ main() {
     done
 
     case $labnum in
-        "lab1") check_lab1;;
         "lab2a"|"lab2b"|"lab2c"|"lab2d") check_lab2;;
         "lab3a"|"lab3b") check_lab3;;
         "lab4a") check_lab4a;;
@@ -64,20 +52,6 @@ main() {
 
     cd
     rm -rf "$tmpdir"
-}
-
-check_lab1() {
-    check_cmd cd src/mrapps
-    check_cmd go build -buildmode=plugin wc.go
-    check_cmd go build -buildmode=plugin indexer.go
-    check_cmd go build -buildmode=plugin mtiming.go
-    check_cmd go build -buildmode=plugin rtiming.go
-    check_cmd go build -buildmode=plugin crash.go
-    check_cmd go build -buildmode=plugin nocrash.go
-    check_cmd cd ../main
-    check_cmd go build mrcoordinator.go
-    check_cmd go build mrworker.go
-    check_cmd go build mrsequential.go
 }
 
 check_lab2() {

@@ -8,16 +8,16 @@ func (rf *Raft) BroadcastHeartbeat(isHeartBeat bool) {
 		}
 		if isHeartBeat {
 			// leader will try to send heartbeat constantly
-			go rf.replicateOneRound(peer)
+			go rf.appendOneRound(peer)
 		} else {
 			// activate replicator thread for this peer
-			rf.replicatorCond[peer].Signal()
+			rf.tryAppendCond[peer].Signal()
 		}
 	}
 }
 
 //One peer fix, sending RPC
-func (rf *Raft) replicateOneRound(peer int) {
+func (rf *Raft) appendOneRound(peer int) {
 	rf.mu.RLock()
 	if rf.state != StateLeader {
 		rf.mu.RUnlock()
@@ -62,7 +62,7 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 		} else if reply.ConflictIndex != 0 {
 			// we find conflict, and then step back one by one
 			rf.nextIndex[peer] = reply.ConflictIndex - 1
-			rf.replicatorCond[peer].Signal()
+			rf.tryAppendCond[peer].Signal()
 		}
 	}
 }

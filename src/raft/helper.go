@@ -32,7 +32,7 @@ func (rf *Raft) Kill() {
 			continue
 		}
 		// just signal replicator goroutine to send entries in batch
-		rf.replicatorCond[peer].Signal()
+		rf.tryAppendCond[peer].Signal()
 	}
 	rf.applyCond.Signal()
 }
@@ -79,14 +79,6 @@ func (rf *Raft) GetState2() (int, string) {
 	rf.mu.Unlock()
 	return Term, State
 }
-
-// func (rf *Raft) getLastLog() Entry {
-// 	return rf.logs[len(rf.logs)-1]
-// }
-
-// func (rf *Raft) getFirstLog() Entry {
-// 	return rf.logs[0]
-// }
 
 func min(a int, b int) int {
 	if a < b {
