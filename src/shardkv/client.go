@@ -13,8 +13,8 @@ import (
 	"math/big"
 	"time"
 
-	"6.824/src/shardctrler"
-	"6.824/test/labrpc"
+	"raft/src/shardctrler"
+	"raft/test/labrpc"
 )
 
 //

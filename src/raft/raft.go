@@ -8,8 +8,8 @@ import (
 
 	//	"6.824/labgob"
 
-	"6.824/src/persister"
-	"6.824/test/labrpc"
+	"raft/src/persister"
+	"raft/test/labrpc"
 )
 
 type Raft struct {

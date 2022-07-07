@@ -4,10 +4,10 @@ import (
 	"os"
 	"testing"
 
-	"6.824/src/persister"
-	"6.824/src/shardctrler"
-	"6.824/src/shardkv"
-	"6.824/test/labrpc"
+	"raft/src/persister"
+	"raft/src/shardctrler"
+	"raft/src/shardkv"
+	"raft/test/labrpc"
 
 	// import "log"
 	crand "crypto/rand"

@@ -9,7 +9,7 @@ import (
 	"math/big"
 	"time"
 
-	"6.824/test/labrpc"
+	"raft/test/labrpc"
 )
 
 type Clerk struct {

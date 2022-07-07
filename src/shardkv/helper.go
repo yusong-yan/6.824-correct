@@ -1,6 +1,6 @@
 package shardkv
 
-import "6.824/src/raft"
+import "raft/src/raft"
 
 func (kv *ShardKV) Getrf() *raft.Raft {
 	return kv.rf

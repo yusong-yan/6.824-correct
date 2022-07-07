@@ -17,10 +17,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"6.824/src/persister"
-	"6.824/src/raft"
-	"6.824/test/labgob"
-	"6.824/test/labrpc"
+	"raft/src/persister"
+	"raft/src/raft"
+	"raft/test/labgob"
+	"raft/test/labrpc"
 
 	crand "crypto/rand"
 	"encoding/base64"

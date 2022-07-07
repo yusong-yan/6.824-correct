@@ -12,9 +12,9 @@ import (
 
 	// "6.824/models"
 	// "6.824/porcupine"
-	"6.824/src/shardkv"
-	"6.824/test/kvraft/models"
-	"6.824/test/kvraft/porcupine"
+	"raft/src/shardkv"
+	"raft/test/kvraft/models"
+	"raft/test/kvraft/porcupine"
 )
 
 const linearizabilityCheckTimeout = 1 * time.Second

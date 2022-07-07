@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"6.824/src/shardctrler"
+	"raft/src/shardctrler"
 )
 
 // import "time"

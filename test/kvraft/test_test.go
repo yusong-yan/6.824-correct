@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"6.824/src/kvraft"
-	"6.824/test/kvraft/models"
-	"6.824/test/kvraft/porcupine"
+	"raft/src/kvraft"
+	"raft/test/kvraft/models"
+	"raft/test/kvraft/porcupine"
 )
 
 // The tester generously allows solutions to complete elections in one second
