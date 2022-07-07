@@ -1,14 +1,12 @@
 package raft
 
-import "time"
-
 //Sending election RPC
 func (rf *Raft) StartElection() {
 	//Yusong
 	rf.ChangeState(StateCandidate)
 	rf.currentTerm += 1
 	request := new(RequestVoteArgs)
-	lastLog := rf.getLastLog()
+	lastLog := rf.raftLog.lastEntry()
 	request.Term = rf.currentTerm
 	request.CandidateId = rf.me
 	request.LastLogIndex = lastLog.Index
@@ -36,8 +34,8 @@ func (rf *Raft) StartElection() {
 						if grantedVotes > len(rf.peers)/2 {
 							DPrintf("{Node %v} receives majority votes in term %v", rf.me, rf.currentTerm)
 							rf.ChangeState(StateLeader)
+							rf.heartbeatTimer.Reset(StableHeartbeatTimeout())
 							rf.BroadcastHeartbeat(true)
-							rf.heartbeatTimer = time.NewTimer(StableHeartbeatTimeout())
 						}
 					} else if response.Term > rf.currentTerm {
 						DPrintf("{Node %v} finds a new leader {Node %v} with term %v and steps down in term %v", rf.me, peer, response.Term, rf.currentTerm)
@@ -56,7 +54,7 @@ func (rf *Raft) HandleRequestVote(request *RequestVoteArgs, response *RequestVot
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist()
-	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing requestVoteRequest %v and reply requestVoteResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), request, response)
+	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing requestVoteRequest %v and reply requestVoteResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.raftLog.dummyIndex(), rf.raftLog.lastEntry(), request, response)
 
 	if request.Term < rf.currentTerm {
 		response.Term, response.VoteGranted = rf.currentTerm, false
@@ -80,7 +78,7 @@ func (rf *Raft) HandleRequestVote(request *RequestVoteArgs, response *RequestVot
 
 // raft paper (5.41 in the end)
 func (rf *Raft) isLogUpToDate(requestLastTerm int, requestLastIndex int) bool {
-	mylastLog := rf.getLastLog()
+	mylastLog := rf.raftLog.lastEntry()
 	//from raft paper
 	return (requestLastTerm > mylastLog.Term ||
 		mylastLog.Term == requestLastTerm && requestLastIndex >= mylastLog.Index)

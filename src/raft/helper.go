@@ -65,13 +65,28 @@ func (rf *Raft) GetState() (int, bool) {
 	return term, isleader
 }
 
-func (rf *Raft) getLastLog() Entry {
-	return rf.logs[len(rf.logs)-1]
+func (rf *Raft) GetState2() (int, string) {
+	rf.mu.Lock()
+	Term := rf.currentTerm
+	var State string
+	if rf.state == StateFollower {
+		State = "Follower"
+	} else if rf.state == StateCandidate {
+		State = "Candidate"
+	} else {
+		State = "Leader"
+	}
+	rf.mu.Unlock()
+	return Term, State
 }
 
-func (rf *Raft) getFirstLog() Entry {
-	return rf.logs[0]
-}
+// func (rf *Raft) getLastLog() Entry {
+// 	return rf.logs[len(rf.logs)-1]
+// }
+
+// func (rf *Raft) getFirstLog() Entry {
+// 	return rf.logs[0]
+// }
 
 func min(a int, b int) int {
 	if a < b {
@@ -92,7 +107,7 @@ func (rf *Raft) persist() {
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
-	e.Encode(rf.logs)
+	e.Encode(rf.raftLog.getLogs())
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
 }
@@ -105,14 +120,14 @@ func (rf *Raft) readPersist(data []byte) {
 	d := labgob.NewDecoder(r)
 	var CurrentTerm int
 	var VotedFor int
-	var Logs []Entry
+	var logs []Entry
 	if d.Decode(&CurrentTerm) != nil ||
 		d.Decode(&VotedFor) != nil ||
-		d.Decode(&Logs) != nil {
+		d.Decode(&logs) != nil {
 		log.Fatal("error")
 	} else {
 		rf.currentTerm = CurrentTerm
 		rf.votedFor = VotedFor
-		rf.logs = Logs
+		rf.raftLog.setLogs(logs)
 	}
 }

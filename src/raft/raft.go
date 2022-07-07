@@ -25,7 +25,7 @@ type Raft struct {
 
 	currentTerm int
 	votedFor    int
-	logs        []Entry // the first entry is a dummy entry which contains LastSnapshotTerm, LastSnapshotIndex and nil Command
+	raftLog     *raftLog // the first entry is a dummy entry which contains LastSnapshotTerm, LastSnapshotIndex and nil Command
 
 	commitIndex int
 	lastApplied int
@@ -48,7 +48,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		state:          StateFollower,
 		currentTerm:    0,
 		votedFor:       -1,
-		logs:           make([]Entry, 1),
+		raftLog:        newLogs(),
 		nextIndex:      make([]int, len(peers)),
 		matchIndex:     make([]int, len(peers)),
 		heartbeatTimer: time.NewTimer(StableHeartbeatTimeout()),
@@ -57,10 +57,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.readPersist(persister.ReadRaftState())
 	rf.applyCond = sync.NewCond(&rf.mu)
 
-	lastLog := rf.getLastLog()
+	lastLogIndex := rf.raftLog.lastIndex()
 	for i := 0; i < len(peers); i++ {
 		rf.matchIndex[i] = 0
-		rf.nextIndex[i] = lastLog.Index + 1
+		rf.nextIndex[i] = lastLogIndex + 1
 		if i != rf.me {
 			rf.replicatorCond[i] = sync.NewCond(&sync.Mutex{})
 			// start a peer's replicator goroutine to replicate entries in the background
@@ -83,9 +83,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	}
 	newLog := Entry{}
 	newLog.Command = command
-	newLog.Index = rf.getLastLog().Index + 1
+	newLog.Index = rf.raftLog.lastIndex() + 1
 	newLog.Term = rf.currentTerm
-	rf.logs = append(rf.logs, newLog)
+	rf.raftLog.append(newLog)
 	rf.persist()
 	DPrintf("{Node %v} receives a new command[%v] to replicate in term %v", rf.me, newLog, rf.currentTerm)
 	rf.BroadcastHeartbeat(false)
@@ -116,7 +116,7 @@ func (rf *Raft) ticker() {
 func (rf *Raft) needReplicating(peer int) bool {
 	rf.mu.RLock()
 	defer rf.mu.RUnlock()
-	return rf.state == StateLeader && rf.matchIndex[peer] < rf.getLastLog().Index
+	return rf.state == StateLeader && rf.matchIndex[peer] < rf.raftLog.lastIndex()
 }
 func (rf *Raft) replicator(peer int) {
 	rf.replicatorCond[peer].L.Lock()
@@ -147,9 +147,9 @@ func (rf *Raft) applier() {
 				return
 			}
 		}
-		firstIndex, commitIndex, lastApplied := rf.getFirstLog().Index, rf.commitIndex, rf.lastApplied
+		commitIndex, lastApplied := rf.commitIndex, rf.lastApplied
 		entries := make([]Entry, commitIndex-lastApplied)
-		copy(entries, rf.logs[lastApplied+1-firstIndex:commitIndex+1-firstIndex])
+		copy(entries, rf.raftLog.slice(lastApplied+1, commitIndex+1))
 		rf.mu.Unlock()
 		for _, entry := range entries {
 			rf.applyCh <- ApplyMsg{

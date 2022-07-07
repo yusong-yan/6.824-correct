@@ -24,7 +24,7 @@ func (rf *Raft) replicateOneRound(peer int) {
 		return
 	}
 	prevLogIndex := rf.nextIndex[peer] - 1
-	if prevLogIndex < rf.getFirstLog().Index {
+	if prevLogIndex < rf.raftLog.dummyIndex() {
 		// only snapshot can catch up
 		// request := rf.genInstallSnapshotRequest()
 		// rf.mu.RUnlock()
@@ -73,7 +73,7 @@ func (rf *Raft) advanceCommitIndexForLeader() {
 		latestGrantedIndex = min(latestGrantedIndex, ServerMatchIndex)
 	}
 	// move forward, until lost the majority
-	for i := latestGrantedIndex + 1; i <= rf.getLastLog().Index; i++ {
+	for i := latestGrantedIndex + 1; i <= rf.raftLog.lastIndex(); i++ {
 		granted := 1
 		for Server, ServerMatchIndex := range rf.matchIndex {
 			if Server != rf.me && ServerMatchIndex >= i {
@@ -87,7 +87,7 @@ func (rf *Raft) advanceCommitIndexForLeader() {
 	}
 	//from raft paper (Rules for Servers, leader, last bullet point)
 	if latestGrantedIndex > rf.commitIndex &&
-		rf.logs[latestGrantedIndex-rf.getFirstLog().Index].Term == rf.currentTerm &&
+		rf.raftLog.getEntry(latestGrantedIndex).Term == rf.currentTerm &&
 		rf.state == StateLeader {
 		rf.commitIndex = latestGrantedIndex
 		rf.applyCond.Signal()
@@ -99,7 +99,7 @@ func (rf *Raft) HandleAppendEntries(request *AppendEntriesArgs, response *Append
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist()
-	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing AppendEntriesRequest %v and reply AppendEntriesResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), request, response)
+	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing AppendEntriesRequest %v and reply AppendEntriesResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.raftLog.dummyIndex(), rf.raftLog.lastIndex(), request, response)
 	if request.Term < rf.currentTerm {
 		response.Term, response.Success = rf.currentTerm, false
 		return
@@ -110,15 +110,15 @@ func (rf *Raft) HandleAppendEntries(request *AppendEntriesArgs, response *Append
 	rf.ChangeState(StateFollower)
 	rf.electionTimer.Reset(RandomizedElectionTimeout())
 
-	if request.PrevLogIndex < rf.getFirstLog().Index {
+	if request.PrevLogIndex < rf.raftLog.dummyIndex() {
 		response.Term, response.Success = 0, false
-		DPrintf1("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, request, request.LeaderId, request.PrevLogIndex, rf.getFirstLog().Index)
+		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, request, request.LeaderId, request.PrevLogIndex, rf.raftLog.dummyIndex())
 		return
 	}
 
 	if !rf.matchLog(request.PrevLogTerm, request.PrevLogIndex) {
 		response.Term, response.Success = rf.currentTerm, false
-		lastIndex := rf.getLastLog().Index
+		lastIndex := rf.raftLog.lastIndex()
 		if request.PrevLogIndex > lastIndex {
 			response.ConflictIndex = lastIndex + 1
 		} else {
@@ -127,10 +127,10 @@ func (rf *Raft) HandleAppendEntries(request *AppendEntriesArgs, response *Append
 		return
 	}
 	// we connect entries with logs, by minimize the delete of rf.logs
-	firstIndex := rf.getFirstLog().Index
-	rf.logs = append(rf.logs[:request.PrevLogIndex+-firstIndex], request.Entries...)
+	rf.raftLog.trunc(request.PrevLogIndex + 1)
+	rf.raftLog.append(request.Entries...)
 	// raft paper (AppendEntries RPC, 5)
-	rf.commitIndex = min(request.LeaderCommit, rf.getLastLog().Index)
+	rf.commitIndex = min(request.LeaderCommit, rf.raftLog.lastIndex())
 	rf.applyCond.Signal()
 
 	response.Term, response.Success = rf.currentTerm, true
@@ -140,21 +140,21 @@ func (rf *Raft) genAppendEntriesRequest(prevLogIndex int) *AppendEntriesArgs {
 	args.LeaderId = rf.me
 	args.Term = rf.currentTerm
 	args.PrevLogIndex = prevLogIndex
-	args.PrevLogTerm = rf.logs[prevLogIndex-rf.getFirstLog().Index].Term
-	args.Entries = make([]Entry, rf.getLastLog().Index-prevLogIndex)
+	args.PrevLogTerm = rf.raftLog.getEntry(prevLogIndex).Term
+	args.Entries = make([]Entry, rf.raftLog.lastIndex()-prevLogIndex)
 	args.LeaderCommit = rf.commitIndex
-	copy(args.Entries, rf.logs[prevLogIndex+1:])
+	copy(args.Entries, rf.raftLog.sliceFrom(prevLogIndex+1))
 	return args
 }
 
 // raft paper (search log match)
 func (rf *Raft) matchLog(requestPrevTerm int, requestPrevIndex int) bool {
 	// there is no such entry exist because there is no such index
-	if requestPrevIndex > rf.getLastLog().Index {
+	if requestPrevIndex > rf.raftLog.lastIndex() {
 		return false
 	}
 	// check the index, if the term is the same
-	targetLog := rf.logs[requestPrevIndex-rf.getFirstLog().Index]
+	targetLog := rf.raftLog.getEntry(requestPrevIndex)
 	if requestPrevIndex == targetLog.Index && requestPrevTerm == targetLog.Term {
 		return true
 	}

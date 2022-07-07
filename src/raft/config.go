@@ -8,20 +8,24 @@ package raft
 // test with the original before submitting.
 //
 
-import "6.824/labgob"
-import "6.824/labrpc"
-import "bytes"
-import "log"
-import "sync"
-import "sync/atomic"
-import "testing"
-import "runtime"
-import "math/rand"
-import crand "crypto/rand"
-import "math/big"
-import "encoding/base64"
-import "time"
-import "fmt"
+import (
+	"bytes"
+	"log"
+	"math/rand"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"testing"
+
+	"6.824/labgob"
+	"6.824/labrpc"
+
+	crand "crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"math/big"
+	"time"
+)
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
@@ -598,6 +602,7 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
+
 			if retry == false {
 				cfg.t.Fatalf("one(%v) failed to reach agreement", cmd)
 			}
@@ -653,4 +658,38 @@ func (cfg *config) LogSize() int {
 		}
 	}
 	return logsize
+}
+
+func (cfg *config) PrintAllInformation() {
+	println("\nCurrent Rafts")
+	println("============================")
+	for i := 0; i < cfg.n; i++ {
+		if cfg.connected[i] {
+			Term, State := cfg.rafts[i].GetState2()
+			println("Raft", i, " in term", Term, " as ", State)
+			print("      log: ")
+			cfg.printLog(cfg.rafts[i])
+			println()
+
+		}
+	}
+	println("============================")
+	cfg.printStateMachine()
+}
+
+func (cfg *config) printLog(raft *Raft) {
+	for i := 0; i < len(raft.raftLog.getLogs()); i++ {
+		fmt.Print(raft.raftLog.getLogs()[i].Command, " ")
+	}
+}
+
+func (cfg *config) printStateMachine() {
+	println("State Machine")
+	for _, v := range cfg.logs {
+		for i := 1; i < len(v)+1; i++ {
+			fmt.Print(v[i], " ")
+		}
+		println()
+	}
+	println()
 }
