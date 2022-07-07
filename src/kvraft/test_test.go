@@ -1,7 +1,7 @@
 package kvraft
 
-import "6.824/porcupine"
-import "6.824/models"
+import "raft/porcupine"
+import "raft/models"
 import "testing"
 import "strconv"
 import "time"

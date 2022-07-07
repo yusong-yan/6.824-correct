@@ -6,9 +6,7 @@ import (
 	"sync"
 	"time"
 
-	//	"6.824/labgob"
-
-	"6.824/labrpc"
+	"raft/labrpc"
 )
 
 type Raft struct {

@@ -1,3 +1,3 @@
-module 6.824
+module raft
 
 go 1.15

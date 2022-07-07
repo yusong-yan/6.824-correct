@@ -8,10 +8,10 @@ package shardkv
 // talks to the group that holds the key's shard.
 //
 
-import "6.824/labrpc"
+import "raft/labrpc"
 import "crypto/rand"
 import "math/big"
-import "6.824/shardctrler"
+import "raft/shardctrler"
 import "time"
 
 //
@@ -104,7 +104,6 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.Key = key
 	args.Value = value
 	args.Op = op
-
 
 	for {
 		shard := key2shard(key)

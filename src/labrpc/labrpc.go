@@ -59,7 +59,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"6.824/labgob"
+	"raft/labgob"
 )
 
 type reqMsg struct {

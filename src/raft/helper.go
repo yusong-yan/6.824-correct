@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"6.824/labgob"
+	"raft/labgob"
 )
 
 func (rf *Raft) ChangeState(state int) {
