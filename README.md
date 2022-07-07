@@ -1,4 +1,4 @@
 # MultiRaft
-third time raft Implementation  - started on June 2022
+### third time raft Implementation  - started on June 2022
 
-frist two in implementations are in other branch 
+### frist two in implementations are in other branch 
