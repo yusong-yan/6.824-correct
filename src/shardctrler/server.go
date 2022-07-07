@@ -1,11 +1,13 @@
 package shardctrler
 
+import (
+	"sync"
 
-import "6.824/raft"
-import "6.824/labrpc"
-import "sync"
-import "6.824/labgob"
-
+	"6.824/src/persister"
+	"6.824/src/raft"
+	"6.824/test/labgob"
+	"6.824/test/labrpc"
+)
 
 type ShardCtrler struct {
 	mu      sync.Mutex
@@ -18,11 +20,9 @@ type ShardCtrler struct {
 	configs []Config // indexed by config num
 }
 
-
 type Op struct {
 	// Your data here.
 }
-
 
 func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 	// Your code here.
@@ -39,7 +39,6 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 	// Your code here.
 }
-
 
 //
 // the tester calls Kill() when a ShardCtrler instance won't
@@ -63,7 +62,7 @@ func (sc *ShardCtrler) Raft() *raft.Raft {
 // form the fault-tolerant shardctrler service.
 // me is the index of the current server in servers[].
 //
-func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister) *ShardCtrler {
+func StartServer(servers []*labrpc.ClientEnd, me int, persister *persister.Persister) *ShardCtrler {
 	sc := new(ShardCtrler)
 	sc.me = me
 

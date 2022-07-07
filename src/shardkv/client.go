@@ -8,18 +8,21 @@ package shardkv
 // talks to the group that holds the key's shard.
 //
 
-import "6.824/labrpc"
-import "crypto/rand"
-import "math/big"
-import "6.824/shardctrler"
-import "time"
+import (
+	"crypto/rand"
+	"math/big"
+	"time"
+
+	"6.824/src/shardctrler"
+	"6.824/test/labrpc"
+)
 
 //
 // which shard is a key in?
 // please use this function,
 // and please do not change it.
 //
-func key2shard(key string) int {
+func Key2shard(key string) int {
 	shard := 0
 	if len(key) > 0 {
 		shard = int(key[0])
@@ -70,7 +73,7 @@ func (ck *Clerk) Get(key string) string {
 	args.Key = key
 
 	for {
-		shard := key2shard(key)
+		shard := Key2shard(key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
 			// try each server for the shard.
@@ -105,9 +108,8 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.Value = value
 	args.Op = op
 
-
 	for {
-		shard := key2shard(key)
+		shard := Key2shard(key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
 			for si := 0; si < len(servers); si++ {

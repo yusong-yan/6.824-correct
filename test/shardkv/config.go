@@ -1,21 +1,25 @@
 package shardkv
 
-import "6.824/shardctrler"
-import "6.824/labrpc"
-import "testing"
-import "os"
+import (
+	"os"
+	"testing"
 
-// import "log"
-import crand "crypto/rand"
-import "math/big"
-import "math/rand"
-import "encoding/base64"
-import "sync"
-import "runtime"
-import "6.824/raft"
-import "strconv"
-import "fmt"
-import "time"
+	"6.824/src/persister"
+	"6.824/src/shardctrler"
+	"6.824/src/shardkv"
+	"6.824/test/labrpc"
+
+	// import "log"
+	crand "crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"math/big"
+	"math/rand"
+	"runtime"
+	"strconv"
+	"sync"
+	"time"
+)
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
@@ -44,8 +48,8 @@ func random_handles(kvh []*labrpc.ClientEnd) []*labrpc.ClientEnd {
 
 type group struct {
 	gid       int
-	servers   []*ShardKV
-	saved     []*raft.Persister
+	servers   []*shardkv.ShardKV
+	saved     []*persister.Persister
 	endnames  [][]string
 	mendnames [][]string
 }
@@ -64,7 +68,7 @@ type config struct {
 	n       int // servers per k/v group
 	groups  []*group
 
-	clerks       map[*Clerk][]string
+	clerks       map[*shardkv.Clerk][]string
 	nextClientId int
 	maxraftstate int
 }
@@ -115,7 +119,7 @@ func (cfg *config) servername(gid int, i int) string {
 	return "server-" + strconv.Itoa(gid) + "-" + strconv.Itoa(i)
 }
 
-func (cfg *config) makeClient() *Clerk {
+func (cfg *config) makeClient() *shardkv.Clerk {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
 
@@ -129,7 +133,7 @@ func (cfg *config) makeClient() *Clerk {
 		cfg.net.Enable(endnames[j], true)
 	}
 
-	ck := MakeClerk(ends, func(servername string) *labrpc.ClientEnd {
+	ck := shardkv.MakeClerk(ends, func(servername string) *labrpc.ClientEnd {
 		name := randstring(20)
 		end := cfg.net.MakeEnd(name)
 		cfg.net.Connect(name, servername)
@@ -141,7 +145,7 @@ func (cfg *config) makeClient() *Clerk {
 	return ck
 }
 
-func (cfg *config) deleteClient(ck *Clerk) {
+func (cfg *config) deleteClient(ck *shardkv.Clerk) {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
 
@@ -239,11 +243,11 @@ func (cfg *config) StartServer(gi int, i int) {
 	if gg.saved[i] != nil {
 		gg.saved[i] = gg.saved[i].Copy()
 	} else {
-		gg.saved[i] = raft.MakePersister()
+		gg.saved[i] = persister.MakePersister()
 	}
 	cfg.mu.Unlock()
 
-	gg.servers[i] = StartServer(ends, i, gg.saved[i], cfg.maxraftstate,
+	gg.servers[i] = shardkv.StartServer(ends, i, gg.saved[i], cfg.maxraftstate,
 		gg.gid, mends,
 		func(servername string) *labrpc.ClientEnd {
 			name := randstring(20)
@@ -254,7 +258,7 @@ func (cfg *config) StartServer(gi int, i int) {
 		})
 
 	kvsvc := labrpc.MakeService(gg.servers[i])
-	rfsvc := labrpc.MakeService(gg.servers[i].rf)
+	rfsvc := labrpc.MakeService(gg.servers[i].Getrf())
 	srv := labrpc.MakeServer()
 	srv.AddService(kvsvc)
 	srv.AddService(rfsvc)
@@ -277,7 +281,7 @@ func (cfg *config) StartCtrlerserver(i int) {
 		cfg.net.Enable(endname, true)
 	}
 
-	p := raft.MakePersister()
+	p := persister.MakePersister()
 
 	cfg.ctrlerservers[i] = shardctrler.StartServer(ends, i, p)
 
@@ -364,8 +368,8 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 		gg := &group{}
 		cfg.groups[gi] = gg
 		gg.gid = 100 + gi
-		gg.servers = make([]*ShardKV, cfg.n)
-		gg.saved = make([]*raft.Persister, cfg.n)
+		gg.servers = make([]*shardkv.ShardKV, cfg.n)
+		gg.saved = make([]*persister.Persister, cfg.n)
 		gg.endnames = make([][]string, cfg.n)
 		gg.mendnames = make([][]string, cfg.nctrlers)
 		for i := 0; i < cfg.n; i++ {
@@ -373,7 +377,7 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 		}
 	}
 
-	cfg.clerks = make(map[*Clerk][]string)
+	cfg.clerks = make(map[*shardkv.Clerk][]string)
 	cfg.nextClientId = cfg.n + 1000 // client ids start 1000 above the highest serverid
 
 	cfg.net.Reliable(!unreliable)

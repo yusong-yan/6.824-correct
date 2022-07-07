@@ -1,16 +1,20 @@
 package kvraft
 
-import "6.824/porcupine"
-import "6.824/models"
-import "testing"
-import "strconv"
-import "time"
-import "math/rand"
-import "strings"
-import "sync"
-import "sync/atomic"
-import "fmt"
-import "io/ioutil"
+import (
+	"fmt"
+	"io/ioutil"
+	"math/rand"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"6.824/src/kvraft"
+	"6.824/test/kvraft/models"
+	"6.824/test/kvraft/porcupine"
+)
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
@@ -44,7 +48,7 @@ func (log *OpLog) Read() []porcupine.Operation {
 var t0 = time.Now()
 
 // get/put/putappend that keep counts
-func Get(cfg *config, ck *Clerk, key string, log *OpLog, cli int) string {
+func Get(cfg *config, ck *kvraft.Clerk, key string, log *OpLog, cli int) string {
 	start := int64(time.Since(t0))
 	v := ck.Get(key)
 	end := int64(time.Since(t0))
@@ -62,7 +66,7 @@ func Get(cfg *config, ck *Clerk, key string, log *OpLog, cli int) string {
 	return v
 }
 
-func Put(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli int) {
+func Put(cfg *config, ck *kvraft.Clerk, key string, value string, log *OpLog, cli int) {
 	start := int64(time.Since(t0))
 	ck.Put(key, value)
 	end := int64(time.Since(t0))
@@ -78,7 +82,7 @@ func Put(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli int) 
 	}
 }
 
-func Append(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli int) {
+func Append(cfg *config, ck *kvraft.Clerk, key string, value string, log *OpLog, cli int) {
 	start := int64(time.Since(t0))
 	ck.Append(key, value)
 	end := int64(time.Since(t0))
@@ -94,7 +98,7 @@ func Append(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli in
 	}
 }
 
-func check(cfg *config, t *testing.T, ck *Clerk, key string, value string) {
+func check(cfg *config, t *testing.T, ck *kvraft.Clerk, key string, value string) {
 	v := Get(cfg, ck, key, nil, -1)
 	if v != value {
 		t.Fatalf("Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
@@ -102,7 +106,7 @@ func check(cfg *config, t *testing.T, ck *Clerk, key string, value string) {
 }
 
 // a client runs the function f and then signals it is done
-func run_client(t *testing.T, cfg *config, me int, ca chan bool, fn func(me int, ck *Clerk, t *testing.T)) {
+func run_client(t *testing.T, cfg *config, me int, ca chan bool, fn func(me int, ck *kvraft.Clerk, t *testing.T)) {
 	ok := false
 	defer func() { ca <- ok }()
 	ck := cfg.makeClient(cfg.All())
@@ -112,7 +116,7 @@ func run_client(t *testing.T, cfg *config, me int, ca chan bool, fn func(me int,
 }
 
 // spawn ncli clients and wait until they are all done
-func spawn_clients_and_wait(t *testing.T, cfg *config, ncli int, fn func(me int, ck *Clerk, t *testing.T)) {
+func spawn_clients_and_wait(t *testing.T, cfg *config, ncli int, fn func(me int, ck *kvraft.Clerk, t *testing.T)) {
 	ca := make([]chan bool, ncli)
 	for cli := 0; cli < ncli; cli++ {
 		ca[cli] = make(chan bool)
@@ -256,7 +260,7 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 		// log.Printf("Iteration %v\n", i)
 		atomic.StoreInt32(&done_clients, 0)
 		atomic.StoreInt32(&done_partitioner, 0)
-		go spawn_clients_and_wait(t, cfg, nclients, func(cli int, myck *Clerk, t *testing.T) {
+		go spawn_clients_and_wait(t, cfg, nclients, func(cli int, myck *kvraft.Clerk, t *testing.T) {
 			j := 0
 			defer func() {
 				clnts[cli] <- j
@@ -454,7 +458,7 @@ func TestUnreliableOneKey3A(t *testing.T) {
 
 	const nclient = 5
 	const upto = 10
-	spawn_clients_and_wait(t, cfg, nclient, func(me int, myck *Clerk, t *testing.T) {
+	spawn_clients_and_wait(t, cfg, nclient, func(me int, myck *kvraft.Clerk, t *testing.T) {
 		n := 0
 		for n < upto {
 			Append(cfg, myck, "k", "x "+strconv.Itoa(me)+" "+strconv.Itoa(n)+" y", nil, -1)

@@ -1,17 +1,21 @@
 package shardctrler
 
-import "6.824/labrpc"
-import "6.824/raft"
-import "testing"
-import "os"
+import (
+	"os"
+	"testing"
 
-// import "log"
-import crand "crypto/rand"
-import "math/rand"
-import "encoding/base64"
-import "sync"
-import "runtime"
-import "time"
+	"6.824/src/persister"
+	"6.824/src/shardctrler"
+	"6.824/test/labrpc"
+
+	// import "log"
+	crand "crypto/rand"
+	"encoding/base64"
+	"math/rand"
+	"runtime"
+	"sync"
+	"time"
+)
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
@@ -36,10 +40,10 @@ type config struct {
 	t            *testing.T
 	net          *labrpc.Network
 	n            int
-	servers      []*ShardCtrler
-	saved        []*raft.Persister
+	servers      []*shardctrler.ShardCtrler
+	saved        []*persister.Persister
 	endnames     [][]string // names of each server's sending ClientEnds
-	clerks       map[*Clerk][]string
+	clerks       map[*shardctrler.Clerk][]string
 	nextClientId int
 	start        time.Time // time at which make_config() was called
 }
@@ -161,7 +165,7 @@ func (cfg *config) partition(p1 []int, p2 []int) {
 // Create a clerk with clerk specific server names.
 // Give it connections to all of the servers, but for
 // now enable only connections to servers in to[].
-func (cfg *config) makeClient(to []int) *Clerk {
+func (cfg *config) makeClient(to []int) *shardctrler.Clerk {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
 
@@ -174,14 +178,14 @@ func (cfg *config) makeClient(to []int) *Clerk {
 		cfg.net.Connect(endnames[j], j)
 	}
 
-	ck := MakeClerk(random_handles(ends))
+	ck := shardctrler.MakeClerk(random_handles(ends))
 	cfg.clerks[ck] = endnames
 	cfg.nextClientId++
 	cfg.ConnectClientUnlocked(ck, to)
 	return ck
 }
 
-func (cfg *config) deleteClient(ck *Clerk) {
+func (cfg *config) deleteClient(ck *shardctrler.Clerk) {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
 
@@ -193,7 +197,7 @@ func (cfg *config) deleteClient(ck *Clerk) {
 }
 
 // caller should hold cfg.mu
-func (cfg *config) ConnectClientUnlocked(ck *Clerk, to []int) {
+func (cfg *config) ConnectClientUnlocked(ck *shardctrler.Clerk, to []int) {
 	// log.Printf("ConnectClient %v to %v\n", ck, to)
 	endnames := cfg.clerks[ck]
 	for j := 0; j < len(to); j++ {
@@ -202,14 +206,14 @@ func (cfg *config) ConnectClientUnlocked(ck *Clerk, to []int) {
 	}
 }
 
-func (cfg *config) ConnectClient(ck *Clerk, to []int) {
+func (cfg *config) ConnectClient(ck *shardctrler.Clerk, to []int) {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
 	cfg.ConnectClientUnlocked(ck, to)
 }
 
 // caller should hold cfg.mu
-func (cfg *config) DisconnectClientUnlocked(ck *Clerk, from []int) {
+func (cfg *config) DisconnectClientUnlocked(ck *shardctrler.Clerk, from []int) {
 	// log.Printf("DisconnectClient %v from %v\n", ck, from)
 	endnames := cfg.clerks[ck]
 	for j := 0; j < len(from); j++ {
@@ -218,7 +222,7 @@ func (cfg *config) DisconnectClientUnlocked(ck *Clerk, from []int) {
 	}
 }
 
-func (cfg *config) DisconnectClient(ck *Clerk, from []int) {
+func (cfg *config) DisconnectClient(ck *shardctrler.Clerk, from []int) {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
 	cfg.DisconnectClientUnlocked(ck, from)
@@ -281,15 +285,15 @@ func (cfg *config) StartServer(i int) {
 	if cfg.saved[i] != nil {
 		cfg.saved[i] = cfg.saved[i].Copy()
 	} else {
-		cfg.saved[i] = raft.MakePersister()
+		cfg.saved[i] = persister.MakePersister()
 	}
 
 	cfg.mu.Unlock()
 
-	cfg.servers[i] = StartServer(ends, i, cfg.saved[i])
+	cfg.servers[i] = shardctrler.StartServer(ends, i, cfg.saved[i])
 
 	kvsvc := labrpc.MakeService(cfg.servers[i])
-	rfsvc := labrpc.MakeService(cfg.servers[i].rf)
+	rfsvc := labrpc.MakeService(cfg.servers[i].Getrf())
 	srv := labrpc.MakeServer()
 	srv.AddService(kvsvc)
 	srv.AddService(rfsvc)
@@ -302,7 +306,7 @@ func (cfg *config) Leader() (bool, int) {
 
 	for i := 0; i < cfg.n; i++ {
 		if cfg.servers[i] != nil {
-			_, is_leader := cfg.servers[i].rf.GetState()
+			_, is_leader := cfg.servers[i].Getrf().GetState()
 			if is_leader {
 				return true, i
 			}
@@ -337,10 +341,10 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 	cfg.t = t
 	cfg.net = labrpc.MakeNetwork()
 	cfg.n = n
-	cfg.servers = make([]*ShardCtrler, cfg.n)
-	cfg.saved = make([]*raft.Persister, cfg.n)
+	cfg.servers = make([]*shardctrler.ShardCtrler, cfg.n)
+	cfg.saved = make([]*persister.Persister, cfg.n)
 	cfg.endnames = make([][]string, cfg.n)
-	cfg.clerks = make(map[*Clerk][]string)
+	cfg.clerks = make(map[*shardctrler.Clerk][]string)
 	cfg.nextClientId = cfg.n + 1000 // client ids start 1000 above the highest serverid
 	cfg.start = time.Now()
 
