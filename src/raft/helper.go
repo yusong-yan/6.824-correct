@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"6.824/labgob"
+	"6.824/test/labgob"
 )
 
 func (rf *Raft) ChangeState(state int) {
@@ -122,4 +122,8 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.votedFor = VotedFor
 		rf.raftLog.setLogs(logs)
 	}
+}
+
+func (rf *Raft) GetLogs() []Entry {
+	return rf.raftLog.getLogs()
 }

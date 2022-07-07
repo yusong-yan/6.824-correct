@@ -8,15 +8,16 @@ import (
 
 	//	"6.824/labgob"
 
-	"6.824/labrpc"
+	"6.824/src/persister"
+	"6.824/test/labrpc"
 )
 
 type Raft struct {
-	mu        sync.RWMutex        // Lock to protect shared access to this peer's state
-	peers     []*labrpc.ClientEnd // RPC end points of all peers
-	persister *Persister          // Object to hold this peer's persisted state
-	me        int                 // this peer's index into peers[]
-	dead      int32               // set by Kill()
+	mu        sync.RWMutex         // Lock to protect shared access to this peer's state
+	peers     []*labrpc.ClientEnd  // RPC end points of all peers
+	persister *persister.Persister // Object to hold this peer's persisted state
+	me        int                  // this peer's index into peers[]
+	dead      int32                // set by Kill()
 
 	applyCh       chan ApplyMsg
 	applyCond     *sync.Cond   // used to wakeup applier goroutine after committing new entries
@@ -37,7 +38,7 @@ type Raft struct {
 }
 
 func Make(peers []*labrpc.ClientEnd, me int,
-	persister *Persister, applyCh chan ApplyMsg) *Raft {
+	persister *persister.Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{
 		peers:          peers,
 		persister:      persister,
@@ -54,6 +55,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		heartbeatTimer: time.NewTimer(StableHeartbeatTimeout()),
 		electionTimer:  time.NewTimer(RandomizedElectionTimeout()),
 	}
+
 	rf.readPersist(persister.ReadRaftState())
 	rf.applyCond = sync.NewCond(&rf.mu)
 
