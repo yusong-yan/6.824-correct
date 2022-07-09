@@ -15,7 +15,7 @@ func (rf *Raft) ChangeState(state int) {
 }
 
 func StableHeartbeatTimeout() time.Duration {
-	return time.Duration(100) * time.Millisecond
+	return time.Duration(90) * time.Millisecond
 }
 
 func RandomizedElectionTimeout() time.Duration {

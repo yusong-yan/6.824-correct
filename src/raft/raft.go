@@ -55,10 +55,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.readPersist(persister.ReadRaftState())
 	rf.applyCond = sync.NewCond(&rf.mu)
 
-	lastLogIndex := rf.raftLog.lastIndex()
 	for i := 0; i < len(peers); i++ {
-		rf.matchIndex[i] = 0
-		rf.nextIndex[i] = lastLogIndex + 1
 		if i != rf.me {
 			rf.tryAppendCond[i] = sync.NewCond(&sync.Mutex{})
 			// start a peer's replicator goroutine to replicate entries in the background
@@ -86,7 +83,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.raftLog.append(newLog)
 	rf.persist()
 	DPrintf("{Node %v} receives a new command[%v] to replicate in term %v", rf.me, newLog, rf.currentTerm)
-	rf.BroadcastHeartbeat(false)
+	rf.BroadcastAppend(Append)
 	return newLog.Index, newLog.Term, true
 }
 
@@ -94,17 +91,17 @@ func (rf *Raft) ticker() {
 	for !rf.killed() {
 		select {
 		case <-rf.electionTimer.C:
+			rf.electionTimer.Reset(RandomizedElectionTimeout())
 			rf.mu.Lock()
 			if rf.state != StateLeader {
 				rf.StartElection()
 			}
-			rf.electionTimer.Reset(RandomizedElectionTimeout())
 			rf.mu.Unlock()
 		case <-rf.heartbeatTimer.C:
+			rf.heartbeatTimer.Reset(StableHeartbeatTimeout())
 			rf.mu.Lock()
 			if rf.state == StateLeader {
-				rf.BroadcastHeartbeat(true)
-				rf.heartbeatTimer.Reset(StableHeartbeatTimeout())
+				go rf.BroadcastAppend(HeartBeat)
 			}
 			rf.mu.Unlock()
 		}
@@ -114,7 +111,8 @@ func (rf *Raft) ticker() {
 func (rf *Raft) needAppend(peer int) bool {
 	rf.mu.RLock()
 	defer rf.mu.RUnlock()
-	return rf.state == StateLeader && rf.matchIndex[peer] < rf.raftLog.lastIndex()
+	ret := rf.state == StateLeader && rf.matchIndex[peer] < rf.raftLog.lastIndex()
+	return ret
 }
 
 func (rf *Raft) appendThread(peer int) {
@@ -143,6 +141,7 @@ func (rf *Raft) applier() {
 		for rf.lastApplied >= rf.commitIndex {
 			rf.applyCond.Wait()
 			if rf.killed() {
+				rf.mu.Unlock()
 				return
 			}
 		}

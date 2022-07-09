@@ -1,6 +1,11 @@
 package raft
 
 const (
+	HeartBeat = iota + 1
+	Append
+)
+
+const (
 	StateLeader = iota + 1
 	StateCandidate
 	StateFollower
@@ -16,12 +21,6 @@ const (
 const (
 	Ok = iota + 1
 	Fail
-)
-
-const (
-	Append = iota + 1
-	CommitAndHeartBeat
-	HeartBeat
 )
 
 type ApplyMsg struct {

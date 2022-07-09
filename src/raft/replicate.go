@@ -1,12 +1,12 @@
 package raft
 
 //HeartBeat
-func (rf *Raft) BroadcastHeartbeat(isHeartBeat bool) {
+func (rf *Raft) BroadcastAppend(job int) {
 	for peer := range rf.peers {
 		if peer == rf.me {
 			continue
 		}
-		if isHeartBeat {
+		if job == HeartBeat {
 			// leader will try to send heartbeat constantly
 			go rf.appendOneRound(peer)
 		} else {
@@ -34,34 +34,54 @@ func (rf *Raft) appendOneRound(peer int) {
 		// 	rf.handleInstallSnapshotResponse(peer, request, response)
 		// 	rf.mu.Unlock()
 		// }
-	} else {
-		// just entries can catch up
-		request := rf.genAppendEntriesRequest(prevLogIndex)
-		rf.mu.RUnlock()
-		response := new(AppendEntriesReply)
-		if rf.sendAppendEntries(peer, request, response) {
-			// Here, we might activate more replicateOneRound depend on
-			// whether we can fix this peer's log in this round
-			rf.mu.Lock()
-			rf.processAppendEntriesReply(peer, request, response)
-			rf.mu.Unlock()
-		}
+		print(rf.nextIndex[peer])
+		panic("weird")
+	}
+	if prevLogIndex > rf.raftLog.lastIndex() {
+		println("prevLogIndex > rf.raftLog.lastIndex()")
+		prevLogIndex = rf.raftLog.lastIndex() + 1
+	}
+	// just entries can catch up
+	args := new(AppendEntriesArgs)
+	args.LeaderId = rf.me
+	args.Term = rf.currentTerm
+	args.PrevLogIndex = prevLogIndex
+	args.PrevLogTerm = rf.raftLog.getEntry(prevLogIndex).Term
+	args.Entries = make([]Entry, rf.raftLog.lastIndex()-prevLogIndex)
+	args.LeaderCommit = rf.commitIndex
+	copy(args.Entries, rf.raftLog.sliceFrom(prevLogIndex+1))
+	rf.mu.RUnlock()
+	reply := new(AppendEntriesReply)
+	if rf.sendAppendEntries(peer, args, reply) {
+		// Here, we might activate more replicateOneRound depend on
+		// whether we can fix this peer's log in this round
+		rf.mu.Lock()
+		rf.processAppendEntriesReply(peer, args, reply)
+		rf.mu.Unlock()
 	}
 }
 func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	if reply.Term > rf.currentTerm {
 		rf.currentTerm = reply.Term
+		rf.votedFor = -1
 		rf.ChangeState(StateFollower)
 		rf.electionTimer.Reset(RandomizedElectionTimeout())
 		rf.persist()
 	} else if reply.Term == rf.currentTerm {
 		if reply.Success {
-			rf.nextIndex[peer] = len(args.Entries) + args.PrevLogIndex + 1
-			rf.matchIndex[peer] = len(args.Entries) + args.PrevLogIndex // if newnext > rf.nextIndex(From MIT)
+			newNext := len(args.Entries) + args.PrevLogIndex + 1
+			newMatch := len(args.Entries) + args.PrevLogIndex
+			if newNext > rf.nextIndex[peer] {
+				rf.nextIndex[peer] = newNext
+			}
+			if newMatch > rf.matchIndex[peer] {
+				rf.matchIndex[peer] = newMatch
+			}
 			rf.advanceCommitIndexForLeader()
 		} else if reply.ConflictIndex != 0 {
-			// we find conflict, and then step back one by one
-			rf.nextIndex[peer] = reply.ConflictIndex - 1
+			// we find conflict and conflict is bigger than 1, and then step back one by one
+			rf.nextIndex[peer] = reply.ConflictIndex
+			// go rf.appendOneRound(peer)
 			rf.tryAppendCond[peer].Signal()
 		}
 	}
@@ -113,16 +133,24 @@ func (rf *Raft) HandleAppendEntries(request *AppendEntriesArgs, response *Append
 	if request.PrevLogIndex < rf.raftLog.dummyIndex() {
 		response.Term, response.Success = 0, false
 		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, request, request.LeaderId, request.PrevLogIndex, rf.raftLog.dummyIndex())
-		return
+		panic("weird2")
+		// return
 	}
 
-	if !rf.matchLog(request.PrevLogTerm, request.PrevLogIndex) {
+	if !rf.raftLog.matchLog(request.PrevLogTerm, request.PrevLogIndex) {
 		response.Term, response.Success = rf.currentTerm, false
 		lastIndex := rf.raftLog.lastIndex()
 		if request.PrevLogIndex > lastIndex {
 			response.ConflictIndex = lastIndex + 1
 		} else {
-			response.ConflictIndex = request.PrevLogIndex
+			dummyIndex := rf.raftLog.dummyIndex()
+			abandondRound := rf.raftLog.getEntry(request.PrevLogIndex).Term
+			index := request.PrevLogIndex - 1
+			for index > dummyIndex+1 && rf.raftLog.getEntry(index).Term == abandondRound {
+				index--
+			}
+			response.ConflictIndex = index
+			// response.ConflictIndex = request.PrevLogIndex
 		}
 		return
 	}
@@ -134,29 +162,4 @@ func (rf *Raft) HandleAppendEntries(request *AppendEntriesArgs, response *Append
 	rf.applyCond.Signal()
 
 	response.Term, response.Success = rf.currentTerm, true
-}
-func (rf *Raft) genAppendEntriesRequest(prevLogIndex int) *AppendEntriesArgs {
-	args := new(AppendEntriesArgs)
-	args.LeaderId = rf.me
-	args.Term = rf.currentTerm
-	args.PrevLogIndex = prevLogIndex
-	args.PrevLogTerm = rf.raftLog.getEntry(prevLogIndex).Term
-	args.Entries = make([]Entry, rf.raftLog.lastIndex()-prevLogIndex)
-	args.LeaderCommit = rf.commitIndex
-	copy(args.Entries, rf.raftLog.sliceFrom(prevLogIndex+1))
-	return args
-}
-
-// raft paper (search log match)
-func (rf *Raft) matchLog(requestPrevTerm int, requestPrevIndex int) bool {
-	// there is no such entry exist because there is no such index
-	if requestPrevIndex > rf.raftLog.lastIndex() {
-		return false
-	}
-	// check the index, if the term is the same
-	targetLog := rf.raftLog.getEntry(requestPrevIndex)
-	if requestPrevIndex == targetLog.Index && requestPrevTerm == targetLog.Term {
-		return true
-	}
-	return false
 }
