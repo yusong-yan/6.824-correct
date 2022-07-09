@@ -61,6 +61,9 @@ func (rf *Raft) appendOneRound(peer int) {
 	}
 }
 func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	if rf.state != StateLeader || args.Term != rf.currentTerm {
+		return
+	}
 	if reply.Term > rf.currentTerm {
 		rf.currentTerm = reply.Term
 		rf.votedFor = -1
@@ -115,51 +118,51 @@ func (rf *Raft) advanceCommitIndexForLeader() {
 }
 
 //Handle the received RPC
-func (rf *Raft) HandleAppendEntries(request *AppendEntriesArgs, response *AppendEntriesReply) {
+func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist()
-	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing AppendEntriesRequest %v and reply AppendEntriesResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.raftLog.dummyIndex(), rf.raftLog.lastIndex(), request, response)
-	if request.Term < rf.currentTerm {
-		response.Term, response.Success = rf.currentTerm, false
+	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing AppendEntriesRequest %v and reply AppendEntriesResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.raftLog.dummyIndex(), rf.raftLog.lastIndex(), args, reply)
+	if args.Term < rf.currentTerm {
+		reply.Term, reply.Success = rf.currentTerm, false
 		return
 	}
-	if request.Term > rf.currentTerm {
-		rf.currentTerm, rf.votedFor = request.Term, -1
+	if args.Term > rf.currentTerm {
+		rf.currentTerm, rf.votedFor = args.Term, -1
 	}
 	rf.ChangeState(StateFollower)
 	rf.electionTimer.Reset(RandomizedElectionTimeout())
 
-	if request.PrevLogIndex < rf.raftLog.dummyIndex() {
-		response.Term, response.Success = 0, false
-		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, request, request.LeaderId, request.PrevLogIndex, rf.raftLog.dummyIndex())
+	if args.PrevLogIndex < rf.raftLog.dummyIndex() {
+		reply.Term, reply.Success = 0, false
+		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, args, args.LeaderId, args.PrevLogIndex, rf.raftLog.dummyIndex())
 		panic("weird2")
 		// return
 	}
 
-	if !rf.raftLog.matchLog(request.PrevLogTerm, request.PrevLogIndex) {
-		response.Term, response.Success = rf.currentTerm, false
+	if !rf.raftLog.matchLog(args.PrevLogTerm, args.PrevLogIndex) {
+		reply.Term, reply.Success = rf.currentTerm, false
 		lastIndex := rf.raftLog.lastIndex()
-		if request.PrevLogIndex > lastIndex {
-			response.ConflictIndex = lastIndex + 1
+		if args.PrevLogIndex > lastIndex {
+			reply.ConflictIndex = lastIndex + 1
 		} else {
 			dummyIndex := rf.raftLog.dummyIndex()
-			abandondRound := rf.raftLog.getEntry(request.PrevLogIndex).Term
-			index := request.PrevLogIndex - 1
+			abandondRound := rf.raftLog.getEntry(args.PrevLogIndex).Term
+			index := args.PrevLogIndex - 1
 			for index > dummyIndex+1 && rf.raftLog.getEntry(index).Term == abandondRound {
 				index--
 			}
-			response.ConflictIndex = index
+			reply.ConflictIndex = index
 			// response.ConflictIndex = request.PrevLogIndex
 		}
 		return
 	}
 	// we connect entries with logs, by minimize the delete of rf.logs
-	rf.raftLog.trunc(request.PrevLogIndex + 1)
-	rf.raftLog.append(request.Entries...)
+	rf.raftLog.trunc(args.PrevLogIndex + 1)
+	rf.raftLog.append(args.Entries...)
 	// raft paper (AppendEntries RPC, 5)
-	rf.commitIndex = min(request.LeaderCommit, rf.raftLog.lastIndex())
+	rf.commitIndex = min(args.LeaderCommit, rf.raftLog.lastIndex())
 	rf.applyCond.Signal()
 
-	response.Term, response.Success = rf.currentTerm, true
+	reply.Term, reply.Success = rf.currentTerm, true
 }
