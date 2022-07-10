@@ -36,6 +36,7 @@ func (rf *Raft) appendOneRound(peer int) {
 		// }
 		print(rf.nextIndex[peer])
 		panic("weird")
+		//return
 	}
 	if prevLogIndex > rf.raftLog.lastIndex() {
 		println("prevLogIndex > rf.raftLog.lastIndex()")
@@ -61,16 +62,13 @@ func (rf *Raft) appendOneRound(peer int) {
 	}
 }
 func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	if rf.state != StateLeader || args.Term != rf.currentTerm {
-		return
-	}
 	if reply.Term > rf.currentTerm {
 		rf.currentTerm = reply.Term
 		rf.votedFor = -1
 		rf.ChangeState(StateFollower)
 		rf.electionTimer.Reset(RandomizedElectionTimeout())
 		rf.persist()
-	} else if reply.Term == rf.currentTerm {
+	} else if reply.Term == rf.currentTerm && rf.state == StateLeader && args.Term == rf.currentTerm {
 		if reply.Success {
 			newNext := len(args.Entries) + args.PrevLogIndex + 1
 			newMatch := len(args.Entries) + args.PrevLogIndex
@@ -81,8 +79,9 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 				rf.matchIndex[peer] = newMatch
 			}
 			rf.advanceCommitIndexForLeader()
-		} else if reply.ConflictIndex != 0 {
-			// we find conflict and conflict is bigger than 1, and then step back one by one
+		} else { // else if rf.nextIndex[peer] > 0
+			// here we are sure that reply.ConflictIndex will be
+			// greater or equal to one from the logic of HandleAppendEntries
 			rf.nextIndex[peer] = reply.ConflictIndex
 			// go rf.appendOneRound(peer)
 			rf.tryAppendCond[peer].Signal()
@@ -90,32 +89,50 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 	}
 }
 func (rf *Raft) advanceCommitIndexForLeader() {
-	// find smallest match, and start from there
-	latestGrantedIndex := rf.matchIndex[0]
-	for _, ServerMatchIndex := range rf.matchIndex {
-		latestGrantedIndex = min(latestGrantedIndex, ServerMatchIndex)
-	}
-	// move forward, until lost the majority
-	for i := latestGrantedIndex + 1; i <= rf.raftLog.lastIndex(); i++ {
-		granted := 1
-		for Server, ServerMatchIndex := range rf.matchIndex {
-			if Server != rf.me && ServerMatchIndex >= i {
-				granted++
+	for i := rf.raftLog.lastIndex(); i > rf.commitIndex; i-- {
+		num := 0
+		for j := range rf.peers {
+			if j != rf.me && rf.matchIndex[j] >= i {
+				num++
 			}
 		}
-		if granted < len(rf.peers)/2+1 {
-			break
+		//若过半数则更新commitIndex
+		if num >= len(rf.peers)/2 && rf.raftLog.getEntry(i).Term == rf.currentTerm {
+			rf.commitIndex = i
+			rf.applyCond.Signal()
+			return
 		}
-		latestGrantedIndex = i
+		if rf.state != StateLeader {
+			return
+		}
 	}
-	//from raft paper (Rules for Servers, leader, last bullet point)
-	if latestGrantedIndex > rf.commitIndex &&
-		rf.raftLog.getEntry(latestGrantedIndex).Term == rf.currentTerm &&
-		rf.state == StateLeader {
-		rf.commitIndex = latestGrantedIndex
-		rf.applyCond.Signal()
-	}
+
 }
+
+// // find smallest match, and start from there
+// latestGrantedIndex := rf.matchIndex[0]
+// for _, ServerMatchIndex := range rf.matchIndex {
+// 	latestGrantedIndex = min(latestGrantedIndex, ServerMatchIndex)
+// }
+// // move forward, until lost the majority
+// for latestGrantedIndex := latestGrantedIndex + 1; latestGrantedIndex <= rf.raftLog.lastIndex(); latestGrantedIndex++ {
+// 	granted := 1
+// 	for Server, ServerMatchIndex := range rf.matchIndex {
+// 		if Server != rf.me && ServerMatchIndex >= latestGrantedIndex {
+// 			granted++
+// 		}
+// 	}
+// 	if granted < len(rf.peers)/2+1 {
+// 		break
+// 	}
+// 	if latestGrantedIndex > rf.commitIndex &&
+// 		rf.raftLog.getEntry(latestGrantedIndex).Term == rf.currentTerm &&
+// 		rf.state == StateLeader {
+// 		rf.commitIndex = latestGrantedIndex
+// 		rf.applyCond.Signal()
+// 	}
+// }
+// //from raft paper (Rules for Servers, leader, last bullet point)
 
 //Handle the received RPC
 func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
@@ -125,11 +142,13 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing AppendEntriesRequest %v and reply AppendEntriesResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.raftLog.dummyIndex(), rf.raftLog.lastIndex(), args, reply)
 	if args.Term < rf.currentTerm {
 		reply.Term, reply.Success = rf.currentTerm, false
+		//println("1", rf.currentTerm == args.Term && !reply.Success && reply.ConflictIndex == 0)
 		return
 	}
 	if args.Term > rf.currentTerm {
 		rf.currentTerm, rf.votedFor = args.Term, -1
 	}
+
 	rf.ChangeState(StateFollower)
 	rf.electionTimer.Reset(RandomizedElectionTimeout())
 
@@ -139,7 +158,6 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 		panic("weird2")
 		// return
 	}
-
 	if !rf.raftLog.matchLog(args.PrevLogTerm, args.PrevLogIndex) {
 		reply.Term, reply.Success = rf.currentTerm, false
 		lastIndex := rf.raftLog.lastIndex()
@@ -148,21 +166,24 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 		} else {
 			dummyIndex := rf.raftLog.dummyIndex()
 			abandondRound := rf.raftLog.getEntry(args.PrevLogIndex).Term
-			index := args.PrevLogIndex - 1
+			index := args.PrevLogIndex
 			for index > dummyIndex+1 && rf.raftLog.getEntry(index).Term == abandondRound {
 				index--
 			}
 			reply.ConflictIndex = index
 			// response.ConflictIndex = request.PrevLogIndex
 		}
+		//println("2", rf.currentTerm == args.Term && !reply.Success && reply.ConflictIndex == 0)
 		return
 	}
 	// we connect entries with logs, by minimize the delete of rf.logs
 	rf.raftLog.trunc(args.PrevLogIndex + 1)
 	rf.raftLog.append(args.Entries...)
 	// raft paper (AppendEntries RPC, 5)
-	rf.commitIndex = min(args.LeaderCommit, rf.raftLog.lastIndex())
-	rf.applyCond.Signal()
-
+	if args.LeaderCommit > rf.commitIndex {
+		rf.commitIndex = min(args.LeaderCommit, rf.raftLog.lastIndex())
+		rf.applyCond.Signal()
+	}
 	reply.Term, reply.Success = rf.currentTerm, true
+	//println("3", rf.currentTerm == args.Term && !reply.Success && reply.ConflictIndex == 0)
 }
