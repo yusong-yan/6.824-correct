@@ -79,7 +79,7 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 				rf.matchIndex[peer] = newMatch
 			}
 			rf.advanceCommitIndexForLeader()
-		} else { // else if rf.nextIndex[peer] > 0
+		} else if rf.nextIndex[peer] > 0 {
 			// here we are sure that reply.ConflictIndex will be
 			// greater or equal to one from the logic of HandleAppendEntries
 			rf.nextIndex[peer] = reply.ConflictIndex
@@ -96,10 +96,12 @@ func (rf *Raft) advanceCommitIndexForLeader() {
 				num++
 			}
 		}
-		//若过半数则更新commitIndex
-		if num >= len(rf.peers)/2 && rf.raftLog.getEntry(i).Term == rf.currentTerm {
-			rf.commitIndex = i
-			rf.applyCond.Signal()
+		//from raft paper (Rules for Servers, leader, last bullet point)
+		if num >= len(rf.peers)/2 {
+			if i > rf.commitIndex && rf.raftLog.getEntry(i).Term == rf.currentTerm {
+				rf.commitIndex = i
+				rf.applyCond.Signal()
+			}
 			return
 		}
 		if rf.state != StateLeader {
@@ -109,31 +111,6 @@ func (rf *Raft) advanceCommitIndexForLeader() {
 
 }
 
-// // find smallest match, and start from there
-// latestGrantedIndex := rf.matchIndex[0]
-// for _, ServerMatchIndex := range rf.matchIndex {
-// 	latestGrantedIndex = min(latestGrantedIndex, ServerMatchIndex)
-// }
-// // move forward, until lost the majority
-// for latestGrantedIndex := latestGrantedIndex + 1; latestGrantedIndex <= rf.raftLog.lastIndex(); latestGrantedIndex++ {
-// 	granted := 1
-// 	for Server, ServerMatchIndex := range rf.matchIndex {
-// 		if Server != rf.me && ServerMatchIndex >= latestGrantedIndex {
-// 			granted++
-// 		}
-// 	}
-// 	if granted < len(rf.peers)/2+1 {
-// 		break
-// 	}
-// 	if latestGrantedIndex > rf.commitIndex &&
-// 		rf.raftLog.getEntry(latestGrantedIndex).Term == rf.currentTerm &&
-// 		rf.state == StateLeader {
-// 		rf.commitIndex = latestGrantedIndex
-// 		rf.applyCond.Signal()
-// 	}
-// }
-// //from raft paper (Rules for Servers, leader, last bullet point)
-
 //Handle the received RPC
 func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
@@ -142,7 +119,6 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing AppendEntriesRequest %v and reply AppendEntriesResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.raftLog.dummyIndex(), rf.raftLog.lastIndex(), args, reply)
 	if args.Term < rf.currentTerm {
 		reply.Term, reply.Success = rf.currentTerm, false
-		//println("1", rf.currentTerm == args.Term && !reply.Success && reply.ConflictIndex == 0)
 		return
 	}
 	if args.Term > rf.currentTerm {
@@ -171,9 +147,7 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 				index--
 			}
 			reply.ConflictIndex = index
-			// response.ConflictIndex = request.PrevLogIndex
 		}
-		//println("2", rf.currentTerm == args.Term && !reply.Success && reply.ConflictIndex == 0)
 		return
 	}
 	// we connect entries with logs, by minimize the delete of rf.logs
@@ -185,5 +159,4 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 		rf.applyCond.Signal()
 	}
 	reply.Term, reply.Success = rf.currentTerm, true
-	//println("3", rf.currentTerm == args.Term && !reply.Success && reply.ConflictIndex == 0)
 }
