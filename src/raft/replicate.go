@@ -68,7 +68,8 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 		rf.ChangeState(StateFollower)
 		rf.electionTimer.Reset(RandomizedElectionTimeout())
 		rf.persist()
-	} else if reply.Term == rf.currentTerm && rf.state == StateLeader && args.Term == rf.currentTerm {
+	} else if reply.Term == rf.currentTerm && rf.state == StateLeader &&
+		args.Term == rf.currentTerm && args.PrevLogIndex == rf.nextIndex[peer]-1 {
 		if reply.Success {
 			newNext := len(args.Entries) + args.PrevLogIndex + 1
 			newMatch := len(args.Entries) + args.PrevLogIndex
@@ -79,7 +80,7 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 				rf.matchIndex[peer] = newMatch
 			}
 			rf.advanceCommitIndexForLeader()
-		} else if rf.nextIndex[peer] > 0 {
+		} else {
 			// here we are sure that reply.ConflictIndex will be
 			// greater or equal to one from the logic of HandleAppendEntries
 			rf.nextIndex[peer] = reply.ConflictIndex
@@ -89,6 +90,9 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 	}
 }
 func (rf *Raft) advanceCommitIndexForLeader() {
+	if rf.state != StateLeader {
+		return
+	}
 	for i := rf.raftLog.lastIndex(); i > rf.commitIndex; i-- {
 		num := 0
 		for j := range rf.peers {
@@ -97,14 +101,9 @@ func (rf *Raft) advanceCommitIndexForLeader() {
 			}
 		}
 		//from raft paper (Rules for Servers, leader, last bullet point)
-		if num >= len(rf.peers)/2 {
-			if i > rf.commitIndex && rf.raftLog.getEntry(i).Term == rf.currentTerm {
-				rf.commitIndex = i
-				rf.applyCond.Signal()
-			}
-			return
-		}
-		if rf.state != StateLeader {
+		if num >= len(rf.peers)/2 && rf.raftLog.getEntry(i).Term == rf.currentTerm {
+			rf.commitIndex = i
+			rf.applyCond.Signal()
 			return
 		}
 	}
@@ -150,9 +149,20 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 		}
 		return
 	}
-	// we connect entries with logs, by minimize the delete of rf.logs
-	rf.raftLog.trunc(args.PrevLogIndex + 1)
-	rf.raftLog.append(args.Entries...)
+	// This is old codes, which will fail under none fifo channel
+	// {
+	// // we connect entries with logs, by minimize the delete of rf.logs
+	// rf.raftLog.trunc(args.PrevLogIndex + 1)
+	// rf.raftLog.append(args.Entries...)
+	// }
+
+	for index, entry := range args.Entries {
+		if rf.raftLog.convertIndex(entry.Index) >= rf.raftLog.len() || rf.raftLog.getEntry(entry.Index).Term != entry.Term {
+			rf.raftLog.trunc(entry.Index)
+			rf.raftLog.append(args.Entries[index:]...)
+			break
+		}
+	}
 	// raft paper (AppendEntries RPC, 5)
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.raftLog.lastIndex())

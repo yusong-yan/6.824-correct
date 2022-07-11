@@ -35,7 +35,6 @@ func (rf *Raft) StartElection() {
 							rf.ChangeState(StateLeader)
 							lastLogIndex := rf.raftLog.lastIndex()
 							for i := 0; i < len(rf.peers); i++ {
-								rf.matchIndex[i] = 0
 								rf.nextIndex[i] = lastLogIndex + 1
 							}
 							rf.heartbeatTimer.Reset(StableHeartbeatTimeout())

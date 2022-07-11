@@ -75,19 +75,10 @@ func (l *raftLog) len() int {
 }
 
 // raft paper (search log match)
-func (l *raftLog) matchLog(requestPrevTerm int, requestPrevIndex int) bool {
-	// there is no such entry exist because there is no such index
-	// if requestPrevIndex > l.lastIndex() {
-	// 	return false
-	// }
-	// // check the index, if the term is the same
-	// targetLog := l.getEntry(requestPrevIndex)
-	// if requestPrevIndex == targetLog.Index && requestPrevTerm == targetLog.Term {
-	// 	return true
-	// }
-	// return false
-
-	return requestPrevIndex <= l.lastIndex() && requestPrevTerm == l.getEntry(requestPrevIndex).Term
+func (l *raftLog) matchLog(Term int, Index int) bool {
+	// if Index is bigger than LastIndex, then this entry doesn't exist
+	// else if this index has different term, then also doesn't exist
+	return Index <= l.lastIndex() && Term == l.getEntry(Index).Term
 }
 
 // raft paper (5.41 in the end)
