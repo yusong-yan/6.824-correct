@@ -84,7 +84,8 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 			// here we are sure that reply.ConflictIndex will be
 			// greater or equal to one from the logic of HandleAppendEntries
 			rf.nextIndex[peer] = reply.ConflictIndex
-			// go rf.appendOneRound(peer)
+		}
+		if rf.nextIndex[peer] != rf.raftLog.lastIndex()+1 {
 			rf.tryAppendCond[peer].Signal()
 		}
 	}
@@ -101,7 +102,7 @@ func (rf *Raft) advanceCommitIndexForLeader() {
 			}
 		}
 		//from raft paper (Rules for Servers, leader, last bullet point)
-		if num >= len(rf.peers)/2 && rf.raftLog.getEntry(i).Term == rf.currentTerm {
+		if num > (len(rf.peers)/2)+1 && rf.raftLog.getEntry(i).Term == rf.currentTerm {
 			rf.commitIndex = i
 			rf.applyCond.Signal()
 			return
