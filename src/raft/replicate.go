@@ -102,7 +102,7 @@ func (rf *Raft) advanceCommitIndexForLeader() {
 			}
 		}
 		//from raft paper (Rules for Servers, leader, last bullet point)
-		if num > (len(rf.peers)/2)+1 && rf.raftLog.getEntry(i).Term == rf.currentTerm {
+		if num+1 > (len(rf.peers)/2) && rf.raftLog.getEntry(i).Term == rf.currentTerm {
 			rf.commitIndex = i
 			rf.applyCond.Signal()
 			return
