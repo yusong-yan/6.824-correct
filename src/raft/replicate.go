@@ -36,7 +36,6 @@ func (rf *Raft) appendOneRound(peer int) {
 		// }
 		print(rf.nextIndex[peer])
 		panic("weird")
-		//return
 	}
 	if prevLogIndex > rf.raftLog.lastIndex() {
 		println("prevLogIndex > rf.raftLog.lastIndex()")

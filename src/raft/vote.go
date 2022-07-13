@@ -35,6 +35,7 @@ func (rf *Raft) StartElection() {
 							rf.ChangeState(StateLeader)
 							lastLogIndex := rf.raftLog.lastIndex()
 							for i := 0; i < len(rf.peers); i++ {
+								// if we don't set rf.matchIndex[i] == 0, there will be error in unreliable test
 								rf.matchIndex[i] = 0
 								rf.nextIndex[i] = lastLogIndex + 1
 							}
