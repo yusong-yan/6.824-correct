@@ -16,11 +16,25 @@ func (l *raftLog) getLogs() []Entry {
 }
 
 func (l *raftLog) setLogs(newlogs []Entry) {
-	l.logs = newlogs
+	l.logs = make([]Entry, len(newlogs))
+	copy(l.logs, newlogs)
 }
 
+func (l *raftLog) clearDummyEntryCommand() {
+	l.logs[0].Command = nil
+}
+
+func (l *raftLog) setDummyIndex(index int) {
+	l.logs[0].Index = index
+}
+func (l *raftLog) setDummyTerm(term int) {
+	l.logs[0].Term = term
+}
 func (l *raftLog) dummyIndex() int {
 	return l.logs[0].Index
+}
+func (l *raftLog) dummyTerm() int {
+	return l.logs[0].Term
 }
 
 func (l *raftLog) getEntry(index int) Entry {

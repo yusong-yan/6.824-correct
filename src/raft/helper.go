@@ -52,6 +52,11 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	return ok
 }
 
+func (rf *Raft) sendInstallSnapshot(server int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) bool {
+	ok := rf.peers[server].Call("Raft.HandleInstallSnapshot", args, reply)
+	return ok
+}
+
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
@@ -95,13 +100,16 @@ func Max(a int, b int) int {
 }
 
 func (rf *Raft) persist() {
+	data := rf.SaveState()
+	rf.persister.SaveRaftState(data)
+}
+func (rf *Raft) SaveState() []byte {
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.raftLog.getLogs())
-	data := w.Bytes()
-	rf.persister.SaveRaftState(data)
+	return w.Bytes()
 }
 
 func (rf *Raft) readPersist(data []byte) {

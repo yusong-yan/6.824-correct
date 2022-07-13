@@ -25,39 +25,46 @@ func (rf *Raft) appendOneRound(peer int) {
 	}
 	prevLogIndex := rf.nextIndex[peer] - 1
 	if prevLogIndex < rf.raftLog.dummyIndex() {
-		// only snapshot can catch up
-		// request := rf.genInstallSnapshotRequest()
-		// rf.mu.RUnlock()
-		// response := new(InstallSnapshotResponse)
-		// if rf.sendInstallSnapshot(peer, request, response) {
-		// 	rf.mu.Lock()
-		// 	rf.handleInstallSnapshotResponse(peer, request, response)
-		// 	rf.mu.Unlock()
-		// }
-		print(rf.nextIndex[peer])
-		panic("weird")
-	}
-	if prevLogIndex > rf.raftLog.lastIndex() {
-		println("prevLogIndex > rf.raftLog.lastIndex()")
-		prevLogIndex = rf.raftLog.lastIndex() + 1
-	}
-	// just entries can catch up
-	args := new(AppendEntriesArgs)
-	args.LeaderId = rf.me
-	args.Term = rf.currentTerm
-	args.PrevLogIndex = prevLogIndex
-	args.PrevLogTerm = rf.raftLog.getEntry(prevLogIndex).Term
-	args.Entries = make([]Entry, rf.raftLog.lastIndex()-prevLogIndex)
-	args.LeaderCommit = rf.commitIndex
-	copy(args.Entries, rf.raftLog.sliceFrom(prevLogIndex+1))
-	rf.mu.RUnlock()
-	reply := new(AppendEntriesReply)
-	if rf.sendAppendEntries(peer, args, reply) {
-		// Here, we might activate more replicateOneRound depend on
-		// whether we can fix this peer's log in this round
-		rf.mu.Lock()
-		rf.processAppendEntriesReply(peer, args, reply)
-		rf.mu.Unlock()
+		args := &InstallSnapshotArgs{
+			Term:              rf.currentTerm,
+			LeaderId:          rf.me,
+			LastIncludedIndex: rf.raftLog.dummyIndex(),
+			LastIncludedTerm:  rf.raftLog.dummyTerm(),
+			Snapshot:          rf.persister.ReadSnapshot(),
+		}
+		rf.mu.RUnlock()
+		reply := new(InstallSnapshotReply)
+		if rf.sendInstallSnapshot(peer, args, reply) {
+			rf.mu.Lock()
+			rf.processInstallSnapshotReply(peer, args, reply)
+			rf.mu.Unlock()
+		}
+	} else {
+		//
+		if prevLogIndex > rf.raftLog.lastIndex() {
+			println("prevLogIndex > rf.raftLog.lastIndex()")
+			prevLogIndex = rf.raftLog.lastIndex() + 1
+		}
+		// just entries can catch up
+		args := &AppendEntriesArgs{
+			LeaderId:     rf.me,
+			Term:         rf.currentTerm,
+			PrevLogIndex: prevLogIndex,
+			PrevLogTerm:  rf.raftLog.getEntry(prevLogIndex).Term,
+			Entries:      make([]Entry, rf.raftLog.lastIndex()-prevLogIndex),
+			LeaderCommit: rf.commitIndex,
+		}
+
+		copy(args.Entries, rf.raftLog.sliceFrom(prevLogIndex+1))
+		rf.mu.RUnlock()
+		reply := new(AppendEntriesReply)
+		if rf.sendAppendEntries(peer, args, reply) {
+			// Here, we might activate more replicateOneRound depend on
+			// whether we can fix this peer's log in this round
+			rf.mu.Lock()
+			rf.processAppendEntriesReply(peer, args, reply)
+			rf.mu.Unlock()
+		}
 	}
 }
 func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
