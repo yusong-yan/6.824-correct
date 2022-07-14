@@ -44,7 +44,6 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs, reply *InstallS
 	reply.Term = rf.currentTerm
 	rf.ChangeState(StateFollower)
 	rf.electionTimer.Reset(RandomizedElectionTimeout())
-
 	// outdated snapshot
 	if args.LastIncludedIndex <= rf.raftLog.dummyIndex() {
 		return

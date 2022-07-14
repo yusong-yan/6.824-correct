@@ -40,10 +40,8 @@ func (rf *Raft) appendOneRound(peer int) {
 			rf.mu.Unlock()
 		}
 	} else {
-		//
 		if prevLogIndex > rf.raftLog.lastIndex() {
-			println("prevLogIndex > rf.raftLog.lastIndex()")
-			prevLogIndex = rf.raftLog.lastIndex() + 1
+			panic("revLogIndex > rf.raftLog.lastIndex()")
 		}
 		// just entries can catch up
 		args := &AppendEntriesArgs{
@@ -91,7 +89,7 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 			// greater or equal to one from the logic of HandleAppendEntries
 			rf.nextIndex[peer] = reply.ConflictIndex
 		}
-		if rf.nextIndex[peer] != rf.raftLog.lastIndex()+1 {
+		if rf.nextIndex[peer] < rf.raftLog.lastIndex()+1 {
 			rf.tryAppendCond[peer].Signal()
 		}
 	}
@@ -136,9 +134,9 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 
 	if args.PrevLogIndex < rf.raftLog.dummyIndex() {
 		reply.Term, reply.Success = 0, false
+		reply.ConflictIndex = rf.raftLog.dummyIndex() + 1
 		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, args, args.LeaderId, args.PrevLogIndex, rf.raftLog.dummyIndex())
-		panic("weird2")
-		// return
+		return
 	}
 	if !rf.raftLog.matchLog(args.PrevLogTerm, args.PrevLogIndex) {
 		reply.Term, reply.Success = rf.currentTerm, false
