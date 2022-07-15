@@ -1,12 +1,23 @@
 package kvraft
 
-import "raft/labrpc"
-import "crypto/rand"
-import "math/big"
+import (
+	"crypto/rand"
+	"math/big"
+	"sync"
+	"time"
+
+	"raft/labrpc"
+)
 
 type Clerk struct {
-	servers []*labrpc.ClientEnd
-	// You will have to modify this struct.
+	servers  []*labrpc.ClientEnd
+	mu       sync.Mutex
+	clientId int64
+
+	Test       bool     //for run
+	serversRun []string //for run
+
+	serverNumber int
 }
 
 func nrand() int64 {
@@ -19,45 +30,65 @@ func nrand() int64 {
 func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
-	// You'll have to add code here.
+	ck.serverNumber = len(servers)
+	ck.clientId = time.Now().UnixNano()
+	ck.Test = true
 	return ck
 }
 
-//
-// fetch the current value for a key.
-// returns "" if the key does not exist.
-// keeps trying forever in the face of all other errors.
-//
-// you can send an RPC with code like this:
-// ok := ck.servers[i].Call("KVServer.Get", &args, &reply)
-//
-// the types of args and reply (including whether they are pointers)
-// must match the declared types of the RPC handler function's
-// arguments. and reply must be passed as a pointer.
-//
 func (ck *Clerk) Get(key string) string {
-
-	// You will have to modify this function.
-	return ""
+	ck.mu.Lock()
+	defer ck.mu.Unlock()
+	args := GetArgs{}
+	args.Id = time.Now().UnixNano()
+	args.Client = ck.clientId
+	args.Key = key
+	for {
+		for i := 0; i < ck.serverNumber; i++ {
+			reply := GetReply{}
+			var ok bool
+			ok = ck.servers[i].Call("KVServer.Get", &args, &reply)
+			if ok {
+				if reply.Err == OK {
+					return reply.Value
+				}
+			}
+		}
+		//fmt.Println("Retrying")
+		time.Sleep(50 * time.Microsecond)
+	}
 }
 
-//
-// shared by Put and Append.
-//
-// you can send an RPC with code like this:
-// ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
-//
-// the types of args and reply (including whether they are pointers)
-// must match the declared types of the RPC handler function's
-// arguments. and reply must be passed as a pointer.
-//
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+	ck.mu.Lock()
+	defer ck.mu.Unlock()
+	args := PutAppendArgs{}
+	args.Op = op
+	args.Value = value
+	args.Client = ck.clientId
+	args.Key = key
+	args.Id = time.Now().UnixNano()
+	for {
+		for i := 0; i < ck.serverNumber; i++ {
+			reply := PutAppendReply{}
+			var ok bool
+			ok = ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
+			if ok {
+				if reply.Err == OK {
+					return
+				}
+			}
+			//time.Sleep(20 * time.Millisecond)
+		}
+		//fmt.Println("Retrying")
+		time.Sleep(50 * time.Microsecond)
+	}
 }
 
 func (ck *Clerk) Put(key string, value string) {
-	ck.PutAppend(key, value, "Put")
+	ck.PutAppend(key, value, Putt)
 }
 func (ck *Clerk) Append(key string, value string) {
-	ck.PutAppend(key, value, "Append")
+	ck.PutAppend(key, value, Appendd)
 }
