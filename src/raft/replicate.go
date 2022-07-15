@@ -135,7 +135,7 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 	if args.PrevLogIndex < rf.raftLog.dummyIndex() {
 		reply.Term, reply.Success = 0, false
 		reply.ConflictIndex = rf.raftLog.dummyIndex() + 1
-		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, args, args.LeaderId, args.PrevLogIndex, rf.raftLog.dummyIndex())
+		DPrintf1("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, args, args.LeaderId, args.PrevLogIndex, rf.raftLog.dummyIndex())
 		return
 	}
 	if !rf.raftLog.matchLog(args.PrevLogTerm, args.PrevLogIndex) {
