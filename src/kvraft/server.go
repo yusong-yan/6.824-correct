@@ -4,6 +4,7 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"raft/labgob"
 	"raft/labrpc"
@@ -28,15 +29,16 @@ type Op struct {
 }
 
 type KVServer struct {
-	mu           sync.Mutex
+	mu           sync.RWMutex
 	me           int
 	rf           *raft.Raft
 	applyCh      chan raft.ApplyMsg
 	dead         int32 // set by Kill()
 	maxraftstate int   // snapshot if log grows this big
 	// Your definitions here.
-	storage *MemoryKV
-	idTable map[int64]map[int64]Op
+	storage     *MemoryKV
+	latestTime  map[int64]int64
+	waitChannel map[int64]chan bool
 }
 
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
@@ -47,26 +49,43 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.applyCh = make(chan raft.ApplyMsg, 1)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 	kv.storage = NewMemoryKV()
-	kv.idTable = map[int64]map[int64]Op{}
+	kv.latestTime = make(map[int64]int64)
+	kv.waitChannel = make(map[int64]chan bool)
 	go kv.listenApplyCh()
 	return kv
 }
 
 func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
+	// never seen this client before, then setup
+	kv.mu.RLock()
+	if kv.dupCommand(args.CommandId, args.CommandId) {
+		reply.Value, reply.Err = kv.storage.Get(args.Key)
+		kv.mu.RUnlock()
+		return
+	}
+	kv.mu.RUnlock()
 	op := Op{args.Op, args.Key, args.Value, args.ClientId, args.CommandId}
 	_, _, isLeader := kv.rf.Start(op)
 	if !isLeader {
 		reply.Err = ErrWrongLeader
 		return
 	}
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-	if kv.existId(args.CommandId, args.ClientId) {
-		// this get operation has been commit to the database
+
+	c := kv.startWaitChannelL(args.ClientId)
+	timer := time.After(90 * time.Millisecond)
+	select {
+	case <-timer:
+		// timeout!
+		kv.deleteWaitChannelL(args.ClientId)
+		reply.Err = ErrTimeout
+	case <-c:
+		// this op has be processed!
+		kv.mu.Lock()
 		reply.Value, reply.Err = kv.storage.Get(args.Key)
-		return
+		kv.deleteWaitChannel(args.ClientId)
+		kv.mu.Unlock()
 	}
-	reply.Err = ErrWrongLeader
+
 }
 
 func (kv *KVServer) listenApplyCh() {
@@ -74,35 +93,45 @@ func (kv *KVServer) listenApplyCh() {
 		applyMessage := <-kv.applyCh
 		curOp := applyMessage.Command.(Op)
 		kv.mu.Lock()
-		//if the operation hasn't been commit to database, just do it
-		//otherwise, skip it
-		if !kv.existId(curOp.Id, curOp.Client) {
+		//check if this command is in the database or not
+		if !kv.dupCommand(curOp.Id, curOp.Client) {
 			if curOp.OpTask == Appendd && kv.storage.Found(curOp.Key) {
 				kv.storage.Append(curOp.Key, curOp.Value)
 			} else if curOp.OpTask == Putt || curOp.OpTask == Appendd {
 				kv.storage.Put(curOp.Key, curOp.Value)
 			}
-			_, exist := kv.idTable[curOp.Client]
-			if !exist {
-				// if haven't seend this client before, add it to id table
-				kv.idTable[curOp.Client] = map[int64]Op{}
+			kv.latestTime[curOp.Client] = curOp.Id
+		}
+		if currentTerm, isLeader := kv.rf.GetState(); isLeader && applyMessage.CommandTerm == currentTerm {
+			c, ok := kv.waitChannel[curOp.Client]
+			if ok {
+				c <- true
 			}
 		}
-		kv.idTable[curOp.Client][curOp.Id] = curOp
-
 		kv.mu.Unlock()
 	}
 }
 
-func (kv *KVServer) existId(id int64, client int64) bool {
-	_, exist := kv.idTable[client]
-	if exist {
-		_, exist = kv.idTable[client][id]
-		if exist {
-			return true
-		}
-	}
-	return false
+func (kv *KVServer) startWaitChannelL(clientId int64) chan bool {
+	c := make(chan bool, 1)
+	kv.mu.Lock()
+	kv.waitChannel[clientId] = c
+	kv.mu.Unlock()
+	return c
+}
+
+func (kv *KVServer) deleteWaitChannel(clientId int64) {
+	delete(kv.waitChannel, clientId)
+}
+func (kv *KVServer) deleteWaitChannelL(clientId int64) {
+	kv.mu.Lock()
+	delete(kv.waitChannel, clientId)
+	kv.mu.Unlock()
+}
+
+func (kv *KVServer) dupCommand(commandId int64, clientId int64) bool {
+	latestId, exist := kv.latestTime[clientId]
+	return exist && commandId <= latestId
 }
 
 func (kv *KVServer) Kill() {
