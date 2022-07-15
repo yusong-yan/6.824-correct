@@ -3,21 +3,17 @@ package kvraft
 import (
 	"crypto/rand"
 	"math/big"
-	"sync"
 	"time"
 
 	"raft/labrpc"
 )
 
 type Clerk struct {
-	servers  []*labrpc.ClientEnd
-	mu       sync.Mutex
-	clientId int64
-
-	Test       bool     //for run
-	serversRun []string //for run
-
+	servers      []*labrpc.ClientEnd
+	clientId     int64
+	commandId    int64
 	serverNumber int
+	leaderId     int64
 }
 
 func nrand() int64 {
@@ -26,69 +22,50 @@ func nrand() int64 {
 	x := bigx.Int64()
 	return x
 }
-
 func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
-	ck := new(Clerk)
-	ck.servers = servers
-	ck.serverNumber = len(servers)
-	ck.clientId = time.Now().UnixNano()
-	ck.Test = true
-	return ck
+	return &Clerk{
+		servers:      servers,
+		leaderId:     0,
+		clientId:     nrand(),
+		commandId:    0,
+		serverNumber: len(servers),
+	}
 }
 
 func (ck *Clerk) Get(key string) string {
-	ck.mu.Lock()
-	defer ck.mu.Unlock()
-	args := GetArgs{}
-	args.Id = time.Now().UnixNano()
-	args.Client = ck.clientId
-	args.Key = key
-	for {
-		for i := 0; i < ck.serverNumber; i++ {
-			reply := GetReply{}
-			var ok bool
-			ok = ck.servers[i].Call("KVServer.Get", &args, &reply)
-			if ok {
-				if reply.Err == OK {
-					return reply.Value
-				}
-			}
-		}
-		//fmt.Println("Retrying")
-		time.Sleep(50 * time.Microsecond)
-	}
-}
-
-func (ck *Clerk) PutAppend(key string, value string, op string) {
-	// You will have to modify this function.
-	ck.mu.Lock()
-	defer ck.mu.Unlock()
-	args := PutAppendArgs{}
-	args.Op = op
-	args.Value = value
-	args.Client = ck.clientId
-	args.Key = key
-	args.Id = time.Now().UnixNano()
-	for {
-		for i := 0; i < ck.serverNumber; i++ {
-			reply := PutAppendReply{}
-			var ok bool
-			ok = ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
-			if ok {
-				if reply.Err == OK {
-					return
-				}
-			}
-			//time.Sleep(20 * time.Millisecond)
-		}
-		//fmt.Println("Retrying")
-		time.Sleep(50 * time.Microsecond)
-	}
+	return ck.Command(&CommandArgs{Key: key, Op: Gett})
 }
 
 func (ck *Clerk) Put(key string, value string) {
-	ck.PutAppend(key, value, Putt)
+	ck.Command(&CommandArgs{Key: key, Value: value, Op: Putt})
 }
 func (ck *Clerk) Append(key string, value string) {
-	ck.PutAppend(key, value, Appendd)
+	ck.Command(&CommandArgs{Key: key, Value: value, Op: Appendd})
+}
+
+func (ck *Clerk) Command(args *CommandArgs) string {
+	args.ClientId, args.CommandId = ck.clientId, ck.commandId
+	for {
+		ch := make(chan *CommandReply, 1)
+		go func() {
+			reply := new(CommandReply)
+			ck.servers[ck.leaderId].Call("KVServer.Command", args, reply)
+			ch <- reply
+		}()
+
+		time_out := time.After(100 * time.Millisecond)
+		select {
+		case reply := <-ch:
+			if reply.Err == OK || reply.Err == ErrNoKey {
+				ck.commandId++
+				return reply.Value
+			}
+			//else fail
+		case <-time_out:
+			//fail
+		}
+		//fail then retry
+		ck.leaderId = (ck.leaderId + 1) % int64(len(ck.servers))
+		continue
+	}
 }
