@@ -5,7 +5,16 @@ type MemoryKV struct {
 }
 
 func NewMemoryKV() *MemoryKV {
-	return &MemoryKV{make(map[string]string)}
+	return &MemoryKV{
+		KV: make(map[string]string),
+	}
+}
+
+func (memoryKV *MemoryKV) GetKV() map[string]string {
+	return memoryKV.KV
+}
+func (memoryKV *MemoryKV) SetKV(newKV map[string]string) {
+	memoryKV.KV = newKV
 }
 
 func (memoryKV *MemoryKV) Found(key string) bool {
