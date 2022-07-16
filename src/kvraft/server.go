@@ -21,6 +21,15 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
+const Debug1 = 1
+
+func DPrintf1(format string, a ...interface{}) (n int, err error) {
+	if Debug1 > 0 {
+		log.Printf(format, a...)
+	}
+	return
+}
+
 type Op struct {
 	OpTask    string
 	Key       string
@@ -44,6 +53,7 @@ type KVServer struct {
 	waitChannel map[int64]chan bool
 	persister   *raft.Persister
 	lastApplied int
+	record      map[int64]map[int64]bool
 }
 
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
@@ -56,6 +66,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.storage = NewMemoryKV()
 	kv.latestTime = make(map[int64]int64)
 	kv.waitChannel = make(map[int64]chan bool)
+	kv.record = make(map[int64]map[int64]bool)
 	kv.lastApplied = 0
 	kv.replaceSnapshot(persister.ReadSnapshot())
 	kv.persister = persister
@@ -64,28 +75,33 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 }
 
 func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
-	op := Op{args.Op, args.Key, args.Value, args.ClientId, args.CommandId, nrand()}
+	op := Op{}
+	op.OpTask = args.Op
+	op.Key = args.Key
+	op.Value = args.Value
+	op.ClientId = args.ClientId
+	op.CommandId = args.CommandId
+	op.Seq = nrand()
+	c := kv.startWaitChannelL(op.Seq)
 	_, _, isLeader := kv.rf.Start(op)
 	if !isLeader {
+		go kv.deleteWaitChannelL(op.Seq)
 		reply.Err = ErrWrongLeader
-		return
+	} else {
+		timer := time.After(99 * time.Millisecond)
+		select {
+		case <-timer:
+			go kv.deleteWaitChannelL(op.Seq)
+			reply.Err = ErrTimeout
+		case <-c:
+			// this has been apply to database
+			kv.mu.Lock()
+			DPrintf("Client %v finish CommandId %v", args.ClientId, args.CommandId)
+			reply.Value, reply.Err = kv.storage.Get(args.Key)
+			kv.deleteWaitChannel(op.Seq)
+			kv.mu.Unlock()
+		}
 	}
-
-	c := kv.startWaitChannelL(op.Seq)
-	timer := time.After(99 * time.Millisecond)
-	select {
-	case <-timer:
-		// timeout!
-		kv.deleteWaitChannelL(op.Seq)
-		reply.Err = ErrTimeout
-	case <-c:
-		// this has been apply to database
-		kv.mu.Lock()
-		reply.Value, reply.Err = kv.storage.Get(args.Key)
-		kv.deleteWaitChannel(op.Seq)
-		kv.mu.Unlock()
-	}
-
 }
 
 func (kv *KVServer) listenApplyCh() {
@@ -93,38 +109,56 @@ func (kv *KVServer) listenApplyCh() {
 		if kv.killed() {
 			return
 		}
+		kv.mu.Lock()
 		if applyMessage.CommandValid {
 			curOp := applyMessage.Command.(Op)
-			kv.mu.Lock()
-			// if applyMessage.CommandIndex <= kv.lastApplied {
-			// 	kv.mu.Unlock()
-			// 	continue
-			// }
-			// kv.lastApplied = applyMessage.CommandIndex
-			if curOp.OpTask != Gett && !kv.dupCommand(curOp.CommandId, curOp.ClientId) {
-				if curOp.OpTask == Appendd {
-					kv.storage.Append(curOp.Key, curOp.Value)
-				} else if curOp.OpTask == Putt {
-					kv.storage.Put(curOp.Key, curOp.Value)
+			if applyMessage.CommandIndex > kv.lastApplied {
+				kv.lastApplied = applyMessage.CommandIndex
+				_, exist := kv.record[curOp.ClientId]
+				if !exist {
+					kv.record[curOp.ClientId] = make(map[int64]bool)
 				}
-				kv.latestTime[curOp.ClientId] = curOp.CommandId
-			}
-			if currentTerm, isLeader := kv.rf.GetState(); isLeader && applyMessage.CommandTerm == currentTerm {
-				c, ok := kv.waitChannel[curOp.Seq]
-				if ok {
-					c <- true
+				if curOp.OpTask != Gett && !kv.dupCommand(curOp.CommandId, curOp.ClientId) {
+					//test
+					value, exist := kv.latestTime[curOp.ClientId]
+					if exist && curOp.CommandId-value > 1 {
+						DPrintf("Client: %v , CommandId: %v, lastCommand: %v", curOp.ClientId, curOp.CommandId, value)
+					}
+					if curOp.OpTask == Appendd {
+						kv.storage.Append(curOp.Key, curOp.Value)
+					} else if curOp.OpTask == Putt {
+						kv.storage.Put(curOp.Key, curOp.Value)
+					}
+					kv.latestTime[curOp.ClientId] = curOp.CommandId
+					// }
+					//test
+					a, exist := kv.record[curOp.ClientId]
+					if !exist {
+						println("WTF")
+					}
+
+					a[curOp.CommandId] = true
+				} else if curOp.OpTask != Gett {
+					_, exist := kv.record[curOp.ClientId][curOp.CommandId]
+					if !exist {
+						println("SOMETHING WRONG")
+					}
+				}
+				if currentTerm, isLeader := kv.rf.GetState(); isLeader && applyMessage.CommandTerm == currentTerm {
+					c, ok := kv.waitChannel[curOp.Seq]
+					if ok {
+						c <- true
+					}
+				}
+				if kv.needSnapShot() {
+					kv.takeSnapShot(applyMessage.CommandIndex)
 				}
 			}
-			if kv.needSnapShot() {
-				kv.takeSnapShot(applyMessage.CommandIndex)
-			}
-			kv.mu.Unlock()
 		} else if applyMessage.SnapshotValid {
-			kv.mu.Lock()
 			kv.replaceSnapshot(applyMessage.Snapshot)
-			// kv.lastApplied = applyMessage.SnapshotIndex
-			kv.mu.Unlock()
+			kv.lastApplied = applyMessage.SnapshotIndex
 		}
+		kv.mu.Unlock()
 	}
 }
 
@@ -173,8 +207,8 @@ func (kv *KVServer) replaceSnapshot(data []byte) {
 		d.Decode(&lastApplied) != nil {
 		log.Fatal("error")
 	} else {
-		kv.latestTime = latestTime
 		kv.storage.SetKV(storage)
+		kv.latestTime = latestTime
 		kv.lastApplied = lastApplied
 	}
 }

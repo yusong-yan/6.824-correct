@@ -48,22 +48,22 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs, reply *InstallS
 	if args.LastIncludedIndex <= rf.raftLog.dummyIndex() {
 		return
 	}
+	if args.LastIncludedIndex < rf.commitIndex {
+		return
+	}
+
 	if args.LastIncludedIndex > rf.raftLog.lastIndex() {
-		newlog := make([]Entry, 0)
-		newlog = append(newlog, Entry{
-			Index:   args.LastIncludedIndex,
-			Term:    args.LastIncludedTerm,
-			Command: nil,
-		})
+		newlog := make([]Entry, 1)
 		rf.raftLog.setLogs(newlog)
+		rf.commitIndex = args.LastIncludedIndex
+		rf.lastApplied = args.LastIncludedIndex
 	} else {
 		rf.raftLog.setLogs(rf.raftLog.sliceFrom(args.LastIncludedIndex))
 		rf.raftLog.clearDummyEntryCommand()
 	}
 	rf.raftLog.setDummyIndex(args.LastIncludedIndex)
 	rf.raftLog.setDummyTerm(args.LastIncludedTerm)
-	rf.commitIndex = Max(args.LastIncludedIndex, rf.commitIndex)
-	rf.lastApplied = Max(args.LastIncludedIndex, rf.lastApplied)
+
 	rf.persister.SaveStateAndSnapshot(rf.SaveState(), args.Snapshot)
 	go func() {
 		rf.applyCh <- ApplyMsg{

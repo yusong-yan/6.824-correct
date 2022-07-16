@@ -14,7 +14,6 @@ type Clerk struct {
 	commandId    int64
 	serverNumber int
 	leaderId     int64
-	in           int
 }
 
 func nrand() int64 {
@@ -30,7 +29,6 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 		clientId:     nrand(),
 		commandId:    1,
 		serverNumber: len(servers),
-		in:           0,
 	}
 }
 
@@ -47,14 +45,11 @@ func (ck *Clerk) Append(key string, value string) {
 
 func (ck *Clerk) Command(args *CommandArgs) string {
 	args.ClientId, args.CommandId = ck.clientId, ck.commandId
-	if ck.in == 1 {
-		println("NOOOOO")
-	}
-	ck.in = 1
 	for {
 		ch := make(chan *CommandReply, 1)
 		go func() {
 			reply := new(CommandReply)
+			DPrintf("Client %v start CommandId %v", ck.clientId, args.CommandId)
 			ck.servers[ck.leaderId].Call("KVServer.Command", args, reply)
 			ch <- reply
 		}()
@@ -64,7 +59,6 @@ func (ck *Clerk) Command(args *CommandArgs) string {
 		case reply := <-ch:
 			if (reply.Err == OK || reply.Err == ErrNoKey) && ck.commandId == args.CommandId {
 				ck.commandId++
-				ck.in = 0
 				return reply.Value
 			}
 			//else fail
