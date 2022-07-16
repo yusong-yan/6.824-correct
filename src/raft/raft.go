@@ -153,10 +153,11 @@ func (rf *Raft) applier() {
 		rf.mu.Unlock()
 		for _, entry := range entries {
 			rf.applyCh <- ApplyMsg{
-				CommandValid: true,
-				Command:      entry.Command,
-				CommandTerm:  entry.Term,
-				CommandIndex: entry.Index,
+				SnapshotValid: false,
+				CommandValid:  true,
+				Command:       entry.Command,
+				CommandTerm:   entry.Term,
+				CommandIndex:  entry.Index,
 			}
 		}
 		rf.mu.Lock()

@@ -20,7 +20,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if index < rf.raftLog.dummyIndex() {
-		println("Raft already trim the log at index:", index)
+		//println("Raft already trim the log at index:", index)
 		return
 	}
 	rf.raftLog.setLogs(rf.raftLog.sliceFrom(index))
