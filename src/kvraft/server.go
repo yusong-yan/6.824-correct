@@ -53,7 +53,6 @@ type KVServer struct {
 	waitChannel map[int64]chan bool
 	persister   *raft.Persister
 	lastApplied int
-	record      map[int64]map[int64]bool
 }
 
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
@@ -66,7 +65,6 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.storage = NewMemoryKV()
 	kv.latestTime = make(map[int64]int64)
 	kv.waitChannel = make(map[int64]chan bool)
-	kv.record = make(map[int64]map[int64]bool)
 	kv.lastApplied = 0
 	kv.replaceSnapshot(persister.ReadSnapshot())
 	kv.persister = persister
@@ -114,10 +112,6 @@ func (kv *KVServer) listenApplyCh() {
 			curOp := applyMessage.Command.(Op)
 			if applyMessage.CommandIndex > kv.lastApplied {
 				kv.lastApplied = applyMessage.CommandIndex
-				_, exist := kv.record[curOp.ClientId]
-				if !exist {
-					kv.record[curOp.ClientId] = make(map[int64]bool)
-				}
 				if curOp.OpTask != Gett && !kv.dupCommand(curOp.CommandId, curOp.ClientId) {
 					//test
 					value, exist := kv.latestTime[curOp.ClientId]
@@ -130,19 +124,6 @@ func (kv *KVServer) listenApplyCh() {
 						kv.storage.Put(curOp.Key, curOp.Value)
 					}
 					kv.latestTime[curOp.ClientId] = curOp.CommandId
-					// }
-					//test
-					a, exist := kv.record[curOp.ClientId]
-					if !exist {
-						println("WTF")
-					}
-
-					a[curOp.CommandId] = true
-				} else if curOp.OpTask != Gett {
-					_, exist := kv.record[curOp.ClientId][curOp.CommandId]
-					if !exist {
-						println("SOMETHING WRONG")
-					}
 				}
 				if currentTerm, isLeader := kv.rf.GetState(); isLeader && applyMessage.CommandTerm == currentTerm {
 					c, ok := kv.waitChannel[curOp.Seq]
@@ -202,6 +183,7 @@ func (kv *KVServer) replaceSnapshot(data []byte) {
 	var storage map[string]string
 	var latestTime map[int64]int64
 	var lastApplied int
+	// var record map[int64]map[int64]bool
 	if d.Decode(&storage) != nil ||
 		d.Decode(&latestTime) != nil ||
 		d.Decode(&lastApplied) != nil {
