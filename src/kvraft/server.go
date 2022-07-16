@@ -125,7 +125,8 @@ func (kv *KVServer) listenApplyCh() {
 					}
 					kv.latestTime[curOp.ClientId] = curOp.CommandId
 				}
-				if currentTerm, isLeader := kv.rf.GetState(); isLeader && applyMessage.CommandTerm == currentTerm {
+				currentTerm, isLeader := kv.rf.GetState()
+				if isLeader && applyMessage.CommandTerm == currentTerm {
 					c, ok := kv.waitChannel[curOp.Seq]
 					if ok {
 						c <- true
@@ -136,8 +137,18 @@ func (kv *KVServer) listenApplyCh() {
 				}
 			}
 		} else if applyMessage.SnapshotValid {
-			kv.replaceSnapshot(applyMessage.Snapshot)
-			kv.lastApplied = applyMessage.SnapshotIndex
+			if kv.lastApplied < applyMessage.SnapshotIndex {
+				if kv.rf.CondInstallSnapshot(applyMessage.SnapshotTerm, applyMessage.CommandIndex, applyMessage.Snapshot) {
+					// if kv.lastApplied > applyMessage.SnapshotIndex {
+					// 	// 	println("WRONG")
+					// 	// } else {
+					kv.replaceSnapshot(applyMessage.Snapshot)
+					kv.lastApplied = applyMessage.SnapshotIndex
+					// }
+				}
+			} else {
+				println("WRONG")
+			}
 		}
 		kv.mu.Unlock()
 	}
@@ -166,7 +177,7 @@ func (kv *KVServer) dupCommand(commandId int64, clientId int64) bool {
 }
 
 func (kv *KVServer) needSnapShot() bool {
-	return kv.maxraftstate != -1 && float32(kv.persister.RaftStateSize()/kv.maxraftstate) > 0.8
+	return kv.maxraftstate != -1 && float32(kv.persister.RaftStateSize()/kv.maxraftstate) > 0.9
 }
 
 func (kv *KVServer) takeSnapShot(index int) {
@@ -182,16 +193,13 @@ func (kv *KVServer) replaceSnapshot(data []byte) {
 	d := labgob.NewDecoder(r)
 	var storage map[string]string
 	var latestTime map[int64]int64
-	var lastApplied int
 	// var record map[int64]map[int64]bool
 	if d.Decode(&storage) != nil ||
-		d.Decode(&latestTime) != nil ||
-		d.Decode(&lastApplied) != nil {
+		d.Decode(&latestTime) != nil {
 		log.Fatal("error")
 	} else {
 		kv.storage.SetKV(storage)
 		kv.latestTime = latestTime
-		kv.lastApplied = lastApplied
 	}
 }
 
@@ -200,7 +208,6 @@ func (kv *KVServer) saveState() []byte {
 	e := labgob.NewEncoder(w)
 	e.Encode(kv.storage.GetKV())
 	e.Encode(kv.latestTime)
-	e.Encode(kv.lastApplied)
 	return w.Bytes()
 }
 
