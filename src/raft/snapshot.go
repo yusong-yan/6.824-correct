@@ -55,12 +55,12 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs, reply *InstallS
 	if args.LastIncludedIndex > rf.raftLog.lastIndex() {
 		newlog := make([]Entry, 1)
 		rf.raftLog.setLogs(newlog)
-		rf.commitIndex = args.LastIncludedIndex
-		rf.lastApplied = args.LastIncludedIndex
 	} else {
 		rf.raftLog.setLogs(rf.raftLog.sliceFrom(args.LastIncludedIndex))
 		rf.raftLog.clearDummyEntryCommand()
 	}
+	rf.commitIndex = args.LastIncludedIndex
+	rf.lastApplied = args.LastIncludedIndex
 	rf.raftLog.setDummyIndex(args.LastIncludedIndex)
 	rf.raftLog.setDummyTerm(args.LastIncludedTerm)
 
