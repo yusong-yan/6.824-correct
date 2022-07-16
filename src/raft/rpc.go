@@ -90,5 +90,6 @@ type InstallSnapshotArgs struct {
 }
 
 type InstallSnapshotReply struct {
-	Term int
+	Term    int
+	Success bool
 }

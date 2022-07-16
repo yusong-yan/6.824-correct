@@ -1,27 +1,27 @@
 package raft
 
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	// rf.mu.Lock()
+	// defer rf.mu.Unlock()
 
-	// outdated snapshot
-	if lastIncludedIndex <= rf.commitIndex {
-		return false
-	}
+	// // outdated snapshot
+	// if lastIncludedIndex <= rf.commitIndex {
+	// 	return false
+	// }
 
-	if lastIncludedIndex > rf.raftLog.lastIndex() {
-		newlog := make([]Entry, 1)
-		rf.raftLog.setLogs(newlog)
-	} else {
-		rf.raftLog.setLogs(rf.raftLog.sliceFrom(lastIncludedIndex))
-		rf.raftLog.clearDummyEntryCommand()
-	}
-	rf.commitIndex = lastIncludedIndex
-	rf.lastApplied = lastIncludedIndex
-	rf.raftLog.setDummyIndex(lastIncludedIndex)
-	rf.raftLog.setDummyTerm(lastIncludedTerm)
+	// if lastIncludedIndex > rf.raftLog.lastIndex() {
+	// 	newlog := make([]Entry, 1)
+	// 	rf.raftLog.setLogs(newlog)
+	// } else {
+	// 	rf.raftLog.setLogs(rf.raftLog.sliceFrom(lastIncludedIndex))
+	// 	rf.raftLog.clearDummyEntryCommand()
+	// }
+	// rf.commitIndex = lastIncludedIndex
+	// rf.lastApplied = lastIncludedIndex
+	// rf.raftLog.setDummyIndex(lastIncludedIndex)
+	// rf.raftLog.setDummyTerm(lastIncludedTerm)
 
-	rf.persister.SaveStateAndSnapshot(rf.SaveState(), snapshot)
+	// rf.persister.SaveStateAndSnapshot(rf.SaveState(), snapshot)
 	return true
 }
 
@@ -33,7 +33,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if index < rf.raftLog.dummyIndex() {
+	if index <= rf.raftLog.dummyIndex() {
 		//println("Raft already trim the log at index:", index)
 		return
 	}
@@ -64,15 +64,30 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs, reply *InstallS
 		return
 	}
 
-	go func() {
-		rf.applyCh <- ApplyMsg{
-			CommandValid:  false,
-			SnapshotValid: true,
-			Snapshot:      args.Snapshot,
-			SnapshotTerm:  args.LastIncludedTerm,
-			SnapshotIndex: args.LastIncludedIndex,
-		}
-	}()
+	if args.LastIncludedIndex > rf.raftLog.lastIndex() {
+		newlog := make([]Entry, 1)
+		rf.raftLog.setLogs(newlog)
+	} else {
+		rf.raftLog.setLogs(rf.raftLog.sliceFrom(args.LastIncludedIndex))
+	}
+	rf.raftLog.clearDummyEntryCommand()
+	rf.commitIndex = args.LastIncludedIndex
+	rf.lastApplied = args.LastIncludedIndex
+	rf.raftLog.setDummyIndex(args.LastIncludedIndex)
+	rf.raftLog.setDummyTerm(args.LastIncludedTerm)
+
+	rf.persister.SaveStateAndSnapshot(rf.SaveState(), args.Snapshot)
+
+	applyMsg := ApplyMsg{
+		SnapshotValid: true,
+		Snapshot:      args.Snapshot,
+		SnapshotIndex: args.LastIncludedIndex,
+		SnapshotTerm:  args.LastIncludedTerm,
+	}
+
+	go func(msg ApplyMsg) {
+		rf.applyCh <- applyMsg
+	}(applyMsg)
 }
 
 func (rf *Raft) processInstallSnapshotReply(peer int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
@@ -84,10 +99,8 @@ func (rf *Raft) processInstallSnapshotReply(peer int, args *InstallSnapshotArgs,
 		rf.electionTimer.Reset(RandomizedElectionTimeout())
 		rf.persist()
 	} else if rf.state == StateLeader && args.Term == rf.currentTerm {
-		// if args.LastIncludedIndex > rf.matchIndex[peer] {
 		rf.matchIndex[peer] = args.LastIncludedIndex
 		rf.nextIndex[peer] = args.LastIncludedIndex + 1
-		// }
 	}
 
 }
