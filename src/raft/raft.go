@@ -151,10 +151,11 @@ func (rf *Raft) applier() {
 		entries := make([]Entry, commitIndex-lastApplied)
 		copy(entries, rf.raftLog.slice(lastApplied+1, commitIndex+1))
 		rf.mu.Unlock()
+
 		for _, entry := range entries {
 			rf.applyCh <- ApplyMsg{
 				SnapshotValid: false,
-				CommandValid:  true,
+				CommandValid:  entry.Command != nil, // if entry.Command == nil then is false
 				Command:       entry.Command,
 				CommandTerm:   entry.Term,
 				CommandIndex:  entry.Index,

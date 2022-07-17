@@ -32,6 +32,7 @@ func (rf *Raft) StartElection() {
 					if reply.VoteGranted {
 						grantedVotes += 1
 						if grantedVotes > len(rf.peers)/2 {
+							go rf.Start(nil)
 							rf.ChangeState(StateLeader)
 							lastLogIndex := rf.raftLog.lastIndex()
 							for i := 0; i < len(rf.peers); i++ {
