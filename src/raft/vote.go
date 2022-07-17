@@ -43,7 +43,6 @@ func (rf *Raft) StartElection() {
 							}
 							rf.heartbeatTimer.Reset(StableHeartbeatTimeout())
 							rf.BroadcastAppend(HeartBeat)
-							DPrintf("{Node %v} receives majority votes in term %v", rf.me, rf.currentTerm)
 						}
 					} else if reply.Term > rf.currentTerm {
 						rf.state = StateFollower
@@ -61,7 +60,6 @@ func (rf *Raft) HandleRequestVote(args *RequestVoteArgs, reply *RequestVoteReply
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist()
-	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing requestVoteRequest %v and reply requestVoteResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.raftLog.dummyIndex(), rf.raftLog.lastEntry(), args, reply)
 
 	if args.Term < rf.currentTerm {
 		reply.Term, reply.VoteGranted = rf.currentTerm, false

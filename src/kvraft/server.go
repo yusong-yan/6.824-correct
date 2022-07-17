@@ -34,7 +34,7 @@ type KVServer struct {
 	latestTime  map[int64]int64
 	waitChannel map[int64]chan bool
 	persister   *raft.Persister
-	lastApplied int
+	//lastApplied int
 }
 
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
@@ -47,7 +47,6 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.storage = NewMemoryKV()
 	kv.latestTime = make(map[int64]int64)
 	kv.waitChannel = make(map[int64]chan bool)
-	kv.lastApplied = 0
 	kv.replaceSnapshot(persister.ReadSnapshot())
 	kv.persister = persister
 	go kv.listenApplyCh()
@@ -114,34 +113,32 @@ func (kv *KVServer) listenApplyCh() {
 		kv.mu.Lock()
 		if applyMessage.CommandValid {
 			curOp := applyMessage.Command.(Op)
-			if applyMessage.CommandIndex > kv.lastApplied {
-				kv.lastApplied = applyMessage.CommandIndex
-				if !kv.dupCommand(curOp.CommandId, curOp.ClientId) {
-					if curOp.OpTask == Appendd {
-						kv.storage.Append(curOp.Key, curOp.Value)
-					} else if curOp.OpTask == Putt {
-						kv.storage.Put(curOp.Key, curOp.Value)
-					}
-					kv.latestTime[curOp.ClientId] = curOp.CommandId
+			if !kv.dupCommand(curOp.CommandId, curOp.ClientId) {
+				if curOp.OpTask == Appendd {
+					kv.storage.Append(curOp.Key, curOp.Value)
+				} else if curOp.OpTask == Putt {
+					kv.storage.Put(curOp.Key, curOp.Value)
 				}
-				if currentTerm, isLeader := kv.rf.GetState(); isLeader && applyMessage.CommandTerm == currentTerm {
-					c, ok := kv.waitChannel[curOp.Seq]
-					if ok {
-						c <- true
-					}
+				kv.latestTime[curOp.ClientId] = curOp.CommandId
+			}
+			if currentTerm, isLeader := kv.rf.GetState(); isLeader && applyMessage.CommandTerm == currentTerm {
+				c, ok := kv.waitChannel[curOp.Seq]
+				if ok {
+					c <- true
 				}
-				if kv.needSnapShot() {
-					kv.takeSnapShot(applyMessage.CommandIndex)
-				}
+			}
+			if kv.needSnapShot() {
+				kv.takeSnapShot(applyMessage.CommandIndex)
 			}
 		} else if applyMessage.SnapshotValid {
 			// since we will request installSnapshot before commitIndex, here it must be kv.lastApplied < applyMessage.SnapshotIndex
 			if kv.rf.CondInstallSnapshot(applyMessage.SnapshotTerm, applyMessage.CommandIndex, applyMessage.Snapshot) {
 				kv.replaceSnapshot(applyMessage.Snapshot)
-				kv.lastApplied = applyMessage.SnapshotIndex
 			}
 		} else {
 			// only happen when there is a new leader get elected and push a nil command
+			// this lab test doesn't support it. so we will never reach this step if we don't
+			// uncomment line 59 and raft/vote.go line36
 			if kv.needSnapShot() {
 				kv.takeSnapShot(applyMessage.CommandIndex)
 			}
