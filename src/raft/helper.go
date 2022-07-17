@@ -1,28 +1,8 @@
 package raft
 
 import (
-	"bytes"
-	"log"
-	"math/rand"
 	"sync/atomic"
-	"time"
-
-	"raft/labgob"
 )
-
-func (rf *Raft) ChangeState(state int) {
-	rf.state = state
-}
-
-func StableHeartbeatTimeout() time.Duration {
-	return time.Duration(90) * time.Millisecond
-}
-
-func RandomizedElectionTimeout() time.Duration {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	diff := 600 - 300
-	return time.Duration(300+r.Intn(diff)) * time.Millisecond
-}
 
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
@@ -85,7 +65,7 @@ func (rf *Raft) GetState2() (int, string) {
 	return Term, State
 }
 
-func min(a int, b int) int {
+func Min(a int, b int) int {
 	if a < b {
 		return a
 	}
@@ -97,37 +77,4 @@ func Max(a int, b int) int {
 		return a
 	}
 	return b
-}
-
-func (rf *Raft) persist() {
-	data := rf.SaveState()
-	rf.persister.SaveRaftState(data)
-}
-func (rf *Raft) SaveState() []byte {
-	w := new(bytes.Buffer)
-	e := labgob.NewEncoder(w)
-	e.Encode(rf.currentTerm)
-	e.Encode(rf.votedFor)
-	e.Encode(rf.raftLog.getLogs())
-	return w.Bytes()
-}
-
-func (rf *Raft) readPersist(data []byte) {
-	if data == nil || len(data) < 1 { // bootstrap without any state?
-		return
-	}
-	r := bytes.NewBuffer(data)
-	d := labgob.NewDecoder(r)
-	var CurrentTerm int
-	var VotedFor int
-	var logs []Entry
-	if d.Decode(&CurrentTerm) != nil ||
-		d.Decode(&VotedFor) != nil ||
-		d.Decode(&logs) != nil {
-		log.Fatal("error")
-	} else {
-		rf.currentTerm = CurrentTerm
-		rf.votedFor = VotedFor
-		rf.raftLog.setLogs(logs)
-	}
 }

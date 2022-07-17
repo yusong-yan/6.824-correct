@@ -57,7 +57,7 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs, reply *InstallS
 		rf.persist()
 	}
 
-	rf.ChangeState(StateFollower)
+	rf.state = StateFollower
 	rf.electionTimer.Reset(RandomizedElectionTimeout())
 	// outdated snapshot
 	if args.LastIncludedIndex <= rf.commitIndex {
@@ -80,6 +80,7 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs, reply *InstallS
 
 	rf.hasSnapshot = true
 	rf.applyCond.Signal()
+
 	// // OLD synchronized version
 	// // In this case we can't go rf.applyCh <- applyMsg, because this can't make sure the atomic of applyMsgs,
 	// // this is because the commitIndex can be changed very quicky, so the applier might push
@@ -87,6 +88,7 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs, reply *InstallS
 	// // this SnapshotMsg to be pushed, but it is slow, the optimazition can be make a hasSnapshot instance in rafe
 	// // that store this information then single applyChan, if we find a validSnapshot we will put this
 	// // msg in the begining of the sending entries.
+
 	// applyMsg := ApplyMsg{
 	// 	SnapshotValid: true,
 	// 	Snapshot:      args.Snapshot,
@@ -101,7 +103,7 @@ func (rf *Raft) processInstallSnapshotReply(peer int, args *InstallSnapshotArgs,
 	if reply.Term > rf.currentTerm {
 		rf.currentTerm = reply.Term
 		rf.votedFor = -1
-		rf.ChangeState(StateFollower)
+		rf.state = StateFollower
 		rf.electionTimer.Reset(RandomizedElectionTimeout())
 		rf.persist()
 	} else if rf.state == StateLeader && args.Term == rf.currentTerm {

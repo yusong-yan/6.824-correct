@@ -69,7 +69,7 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 	if reply.Term > rf.currentTerm {
 		rf.currentTerm = reply.Term
 		rf.votedFor = -1
-		rf.ChangeState(StateFollower)
+		rf.state = StateFollower
 		rf.electionTimer.Reset(RandomizedElectionTimeout())
 		rf.persist()
 	} else if reply.Term == rf.currentTerm && rf.state == StateLeader &&
@@ -120,7 +120,6 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist()
-	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing AppendEntriesRequest %v and reply AppendEntriesResponse %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.raftLog.dummyIndex(), rf.raftLog.lastIndex(), args, reply)
 	if args.Term < rf.currentTerm {
 		reply.Term, reply.Success = rf.currentTerm, false
 		return
@@ -129,13 +128,12 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 		rf.currentTerm, rf.votedFor = args.Term, -1
 	}
 
-	rf.ChangeState(StateFollower)
+	rf.state = StateFollower
 	rf.electionTimer.Reset(RandomizedElectionTimeout())
 
 	if args.PrevLogIndex < rf.raftLog.dummyIndex() {
 		reply.Term, reply.Success = 0, false
 		reply.ConflictIndex = rf.raftLog.dummyIndex() + 1
-		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, args, args.LeaderId, args.PrevLogIndex, rf.raftLog.dummyIndex())
 		return
 	}
 	if !rf.raftLog.matchLog(args.PrevLogTerm, args.PrevLogIndex) {
@@ -170,7 +168,7 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 	}
 	// raft paper (AppendEntries RPC, 5)
 	if args.LeaderCommit > rf.commitIndex {
-		rf.commitIndex = min(args.LeaderCommit, rf.raftLog.lastIndex())
+		rf.commitIndex = Min(args.LeaderCommit, rf.raftLog.lastIndex())
 		rf.applyCond.Signal()
 	}
 	reply.Term, reply.Success = rf.currentTerm, true

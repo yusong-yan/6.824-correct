@@ -3,9 +3,13 @@ package raft
 import (
 	//	"bytes"
 
+	"bytes"
+	"log"
+	"math/rand"
 	"sync"
 	"time"
 
+	"raft/labgob"
 	"raft/labrpc"
 )
 
@@ -35,6 +39,15 @@ type Raft struct {
 	heartbeatTimer *time.Timer
 }
 
+func StableHeartbeatTimeout() time.Duration {
+	return time.Duration(90) * time.Millisecond
+}
+
+func RandomizedElectionTimeout() time.Duration {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	diff := 600 - 300
+	return time.Duration(300+r.Intn(diff)) * time.Millisecond
+}
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{
@@ -86,7 +99,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	newLog.Term = rf.currentTerm
 	rf.raftLog.append(newLog)
 	rf.persist()
-	DPrintf("{Node %v} receives a new command[%v] to replicate in term %v", rf.me, newLog, rf.currentTerm)
 	rf.BroadcastAppend(Append)
 	return newLog.Index, newLog.Term, true
 }
@@ -180,10 +192,42 @@ func (rf *Raft) applier() {
 		}
 
 		rf.mu.Lock()
-		DPrintf("{Node %v} applies entries %v-%v in term %v", rf.me, rf.lastApplied, commitIndex, rf.currentTerm)
 		// use commitIndex rather than rf.commitIndex because rf.commitIndex may change during the Unlock() and Lock()
 		// use Max(rf.lastApplied, commitIndex) rather than commitIndex directly to avoid concurrently InstallSnapshot rpc causing lastApplied to rollback
 		rf.lastApplied = Max(rf.lastApplied, commitIndex)
 		rf.mu.Unlock()
+	}
+}
+
+func (rf *Raft) persist() {
+	data := rf.SaveState()
+	rf.persister.SaveRaftState(data)
+}
+func (rf *Raft) SaveState() []byte {
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.raftLog.getLogs())
+	return w.Bytes()
+}
+
+func (rf *Raft) readPersist(data []byte) {
+	if data == nil || len(data) < 1 { // bootstrap without any state?
+		return
+	}
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var CurrentTerm int
+	var VotedFor int
+	var logs []Entry
+	if d.Decode(&CurrentTerm) != nil ||
+		d.Decode(&VotedFor) != nil ||
+		d.Decode(&logs) != nil {
+		log.Fatal("error")
+	} else {
+		rf.currentTerm = CurrentTerm
+		rf.votedFor = VotedFor
+		rf.raftLog.setLogs(logs)
 	}
 }

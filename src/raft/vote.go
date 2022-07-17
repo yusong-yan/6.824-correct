@@ -3,7 +3,7 @@ package raft
 //Sending election RPC
 func (rf *Raft) StartElection() {
 	//Yusong
-	rf.ChangeState(StateCandidate)
+	rf.state = StateCandidate
 	rf.currentTerm += 1
 	lastLog := rf.raftLog.lastEntry()
 	args := new(RequestVoteArgs)
@@ -25,15 +25,16 @@ func (rf *Raft) StartElection() {
 			if rf.sendRequestVote(peer, args, reply) {
 				rf.mu.Lock()
 				defer rf.mu.Unlock()
-				DPrintf("{Node %v} receives RequestVoteResponse %v from {Node %v} after sending RequestVoteRequest %v in term %v", rf.me, reply, peer, args, rf.currentTerm)
 				// check if the term is equal to make sure that we are still in current round
 				// check Candiate status to make sure we don't process following code if we are leader
 				if rf.currentTerm == args.Term && rf.state == StateCandidate {
 					if reply.VoteGranted {
 						grantedVotes += 1
 						if grantedVotes > len(rf.peers)/2 {
-							go rf.Start(nil)
-							rf.ChangeState(StateLeader)
+							// prevent figure 8 happened
+							// here we don;t need to wait for new client request to commit entires with old term
+							// go rf.Start(nil)
+							rf.state = StateLeader
 							lastLogIndex := rf.raftLog.lastIndex()
 							for i := 0; i < len(rf.peers); i++ {
 								// if we don't set rf.matchIndex[i] == 0, there will be error in unreliable test
@@ -45,8 +46,7 @@ func (rf *Raft) StartElection() {
 							DPrintf("{Node %v} receives majority votes in term %v", rf.me, rf.currentTerm)
 						}
 					} else if reply.Term > rf.currentTerm {
-						DPrintf("{Node %v} finds a new leader {Node %v} with term %v and steps down in term %v", rf.me, peer, reply.Term, rf.currentTerm)
-						rf.ChangeState(StateFollower)
+						rf.state = StateFollower
 						rf.currentTerm, rf.votedFor = reply.Term, -1
 						rf.persist()
 					}
@@ -68,7 +68,7 @@ func (rf *Raft) HandleRequestVote(args *RequestVoteArgs, reply *RequestVoteReply
 		return
 	}
 	if args.Term > rf.currentTerm {
-		rf.ChangeState(StateFollower)
+		rf.state = StateFollower
 		rf.currentTerm, rf.votedFor = args.Term, -1
 	}
 	reply.Term = rf.currentTerm

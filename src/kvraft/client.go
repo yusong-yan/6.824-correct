@@ -49,7 +49,6 @@ func (ck *Clerk) Command(args *CommandArgs) string {
 		ch := make(chan *CommandReply, 1)
 		go func() {
 			reply := new(CommandReply)
-			DPrintf("Client %v start CommandId %v", ck.clientId, args.CommandId)
 			ck.servers[ck.leaderId].Call("KVServer.Command", args, reply)
 			ch <- reply
 		}()

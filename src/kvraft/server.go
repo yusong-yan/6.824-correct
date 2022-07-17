@@ -12,24 +12,6 @@ import (
 	"raft/raft"
 )
 
-const Debug = 0
-
-func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug > 0 {
-		log.Printf(format, a...)
-	}
-	return
-}
-
-const Debug1 = 1
-
-func DPrintf1(format string, a ...interface{}) (n int, err error) {
-	if Debug1 > 0 {
-		log.Printf(format, a...)
-	}
-	return
-}
-
 type Op struct {
 	OpTask    string
 	Key       string
@@ -73,11 +55,13 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 }
 
 func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
-	if kv.needSnapShot() {
-		//println("Waiting for snapshot")
-		reply.Err = ErrTimeout
-		return
-	}
+	// prevent log getting too long when there is no enough servers to commit
+	// below code should be uncomment if raft/vote.go line36 (go rf.Start(nil)) got uncommented
+	// if kv.needSnapShot() {
+	// 	//println("Waiting for snapshot")
+	// 	reply.Err = ErrTimeout
+	// 	return
+	// }
 	op := Op{}
 	op.OpTask = args.Op
 	op.Key = args.Key
@@ -85,8 +69,21 @@ func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
 	op.ClientId = args.ClientId
 	op.CommandId = args.CommandId
 	op.Seq = nrand()
-	c := kv.startWaitChannelL(op.Seq)
+
+	// we can just read the most updated version if there is duplicated
+	// even though this Get result might be different from the Get that has been committed
+	// it still gaurantee the linearizability of the system
+	kv.mu.Lock()
+	if kv.dupCommand(args.CommandId, args.ClientId) {
+		reply.Value, reply.Err = kv.storage.Get(args.Key)
+		kv.mu.Unlock()
+		return
+	}
+	c := kv.startWaitChannel(op.Seq)
+	kv.mu.Unlock()
+
 	_, _, isLeader := kv.rf.Start(op)
+
 	if !isLeader {
 		go kv.deleteWaitChannelL(op.Seq)
 		reply.Err = ErrWrongLeader
@@ -99,8 +96,10 @@ func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
 		case <-c:
 			// this has been apply to database
 			kv.mu.Lock()
-			DPrintf("Client %v finish CommandId %v", args.ClientId, args.CommandId)
-			reply.Value, reply.Err = kv.storage.Get(args.Key)
+			reply.Err = OK
+			if args.Op == Gett {
+				reply.Value, reply.Err = kv.storage.Get(args.Key)
+			}
 			kv.deleteWaitChannel(op.Seq)
 			kv.mu.Unlock()
 		}
@@ -117,12 +116,7 @@ func (kv *KVServer) listenApplyCh() {
 			curOp := applyMessage.Command.(Op)
 			if applyMessage.CommandIndex > kv.lastApplied {
 				kv.lastApplied = applyMessage.CommandIndex
-				if curOp.OpTask != Gett && !kv.dupCommand(curOp.CommandId, curOp.ClientId) {
-					//test
-					value, exist := kv.latestTime[curOp.ClientId]
-					if exist && curOp.CommandId-value > 1 {
-						DPrintf("Client: %v , CommandId: %v, lastCommand: %v", curOp.ClientId, curOp.CommandId, value)
-					}
+				if !kv.dupCommand(curOp.CommandId, curOp.ClientId) {
 					if curOp.OpTask == Appendd {
 						kv.storage.Append(curOp.Key, curOp.Value)
 					} else if curOp.OpTask == Putt {
@@ -130,32 +124,24 @@ func (kv *KVServer) listenApplyCh() {
 					}
 					kv.latestTime[curOp.ClientId] = curOp.CommandId
 				}
-				currentTerm, isLeader := kv.rf.GetState()
-				if isLeader && applyMessage.CommandTerm == currentTerm {
+				if currentTerm, isLeader := kv.rf.GetState(); isLeader && applyMessage.CommandTerm == currentTerm {
 					c, ok := kv.waitChannel[curOp.Seq]
 					if ok {
 						c <- true
 					}
 				}
-				//println("check Snap")
 				if kv.needSnapShot() {
 					kv.takeSnapShot(applyMessage.CommandIndex)
 				}
 			}
 		} else if applyMessage.SnapshotValid {
-			if kv.lastApplied < applyMessage.SnapshotIndex {
-				if kv.rf.CondInstallSnapshot(applyMessage.SnapshotTerm, applyMessage.CommandIndex, applyMessage.Snapshot) {
-					kv.replaceSnapshot(applyMessage.Snapshot)
-					kv.lastApplied = applyMessage.SnapshotIndex
-				}
-			} else {
-				if kv.lastApplied == applyMessage.SnapshotIndex {
-					println("WRONG")
-				} else {
-					println("WRONG2")
-				}
+			// since we will request installSnapshot before commitIndex, here it must be kv.lastApplied < applyMessage.SnapshotIndex
+			if kv.rf.CondInstallSnapshot(applyMessage.SnapshotTerm, applyMessage.CommandIndex, applyMessage.Snapshot) {
+				kv.replaceSnapshot(applyMessage.Snapshot)
+				kv.lastApplied = applyMessage.SnapshotIndex
 			}
 		} else {
+			// only happen when there is a new leader get elected and push a nil command
 			if kv.needSnapShot() {
 				kv.takeSnapShot(applyMessage.CommandIndex)
 			}
@@ -164,11 +150,9 @@ func (kv *KVServer) listenApplyCh() {
 	}
 }
 
-func (kv *KVServer) startWaitChannelL(seq int64) chan bool {
+func (kv *KVServer) startWaitChannel(seq int64) chan bool {
 	c := make(chan bool, 1)
-	kv.mu.Lock()
 	kv.waitChannel[seq] = c
-	kv.mu.Unlock()
 	return c
 }
 
@@ -230,4 +214,22 @@ func (kv *KVServer) Kill() {
 func (kv *KVServer) killed() bool {
 	z := atomic.LoadInt32(&kv.dead)
 	return z == 1
+}
+
+const Debug = 0
+
+func DPrintf(format string, a ...interface{}) (n int, err error) {
+	if Debug > 0 {
+		log.Printf(format, a...)
+	}
+	return
+}
+
+const Debug1 = 1
+
+func DPrintf1(format string, a ...interface{}) (n int, err error) {
+	if Debug1 > 0 {
+		log.Printf(format, a...)
+	}
+	return
 }
