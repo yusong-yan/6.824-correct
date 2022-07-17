@@ -73,6 +73,11 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 }
 
 func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
+	// if kv.needSnapShot() {
+	// 	//println("Waiting for snapshot")
+	// 	reply.Err = ErrTimeout
+	// 	return
+	// }
 	op := Op{}
 	op.OpTask = args.Op
 	op.Key = args.Key
@@ -132,6 +137,7 @@ func (kv *KVServer) listenApplyCh() {
 						c <- true
 					}
 				}
+				//println("check Snap")
 				if kv.needSnapShot() {
 					kv.takeSnapShot(applyMessage.CommandIndex)
 				}
@@ -139,15 +145,15 @@ func (kv *KVServer) listenApplyCh() {
 		} else if applyMessage.SnapshotValid {
 			if kv.lastApplied < applyMessage.SnapshotIndex {
 				if kv.rf.CondInstallSnapshot(applyMessage.SnapshotTerm, applyMessage.CommandIndex, applyMessage.Snapshot) {
-					// if kv.lastApplied > applyMessage.SnapshotIndex {
-					// 	// 	println("WRONG")
-					// 	// } else {
 					kv.replaceSnapshot(applyMessage.Snapshot)
 					kv.lastApplied = applyMessage.SnapshotIndex
-					// }
 				}
 			} else {
-				println("WRONG")
+				if kv.lastApplied == applyMessage.SnapshotIndex {
+					println("WRONG")
+				} else {
+					println("WRONG2")
+				}
 			}
 		}
 		kv.mu.Unlock()
@@ -177,7 +183,7 @@ func (kv *KVServer) dupCommand(commandId int64, clientId int64) bool {
 }
 
 func (kv *KVServer) needSnapShot() bool {
-	return kv.maxraftstate != -1 && float32(kv.persister.RaftStateSize()/kv.maxraftstate) > 0.9
+	return kv.maxraftstate != -1 && float32(kv.persister.RaftStateSize()/kv.maxraftstate) > 0.8
 }
 
 func (kv *KVServer) takeSnapShot(index int) {
