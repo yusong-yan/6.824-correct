@@ -73,11 +73,11 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 }
 
 func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
-	// if kv.needSnapShot() {
-	// 	//println("Waiting for snapshot")
-	// 	reply.Err = ErrTimeout
-	// 	return
-	// }
+	if kv.needSnapShot() {
+		//println("Waiting for snapshot")
+		reply.Err = ErrTimeout
+		return
+	}
 	op := Op{}
 	op.OpTask = args.Op
 	op.Key = args.Key
@@ -154,6 +154,10 @@ func (kv *KVServer) listenApplyCh() {
 				} else {
 					println("WRONG2")
 				}
+			}
+		} else {
+			if kv.needSnapShot() {
+				kv.takeSnapShot(applyMessage.CommandIndex)
 			}
 		}
 		kv.mu.Unlock()
