@@ -29,6 +29,7 @@ type Raft struct {
 	lastApplied int
 	nextIndex   []int
 	matchIndex  []int
+	hasSnapshot bool
 
 	electionTimer  *time.Timer
 	heartbeatTimer *time.Timer
@@ -64,6 +65,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	}
 	rf.commitIndex = rf.raftLog.dummyIndex()
 	rf.lastApplied = rf.commitIndex
+	rf.hasSnapshot = false
 	// start ticker goroutine to start elections
 	go rf.ticker()
 	// start applier goroutine to push committed logs into applyCh exactly once
@@ -140,7 +142,7 @@ func (rf *Raft) applier() {
 	for !rf.killed() {
 		rf.mu.Lock()
 		// if there is no need to apply entries, just release CPU and wait other goroutine's signal if they commit new entries
-		for rf.lastApplied >= rf.commitIndex {
+		for !rf.hasSnapshot && rf.lastApplied >= rf.commitIndex {
 			rf.applyCond.Wait()
 			if rf.killed() {
 				rf.mu.Unlock()
@@ -148,19 +150,35 @@ func (rf *Raft) applier() {
 			}
 		}
 		commitIndex, lastApplied := rf.commitIndex, rf.lastApplied
-		entries := make([]Entry, commitIndex-lastApplied)
-		copy(entries, rf.raftLog.slice(lastApplied+1, commitIndex+1))
-		rf.mu.Unlock()
-
-		for _, entry := range entries {
-			rf.applyCh <- ApplyMsg{
-				SnapshotValid: false,
-				CommandValid:  entry.Command != nil, // if entry.Command == nil then is false
-				Command:       entry.Command,
-				CommandTerm:   entry.Term,
-				CommandIndex:  entry.Index,
+		msgs := make([]ApplyMsg, 0)
+		if rf.hasSnapshot {
+			msgs = append(msgs, ApplyMsg{
+				SnapshotValid: true,
+				CommandValid:  false,
+				Snapshot:      rf.persister.ReadSnapshot(),
+				SnapshotTerm:  rf.raftLog.dummyTerm(),
+				SnapshotIndex: rf.raftLog.dummyIndex(),
+			})
+			rf.hasSnapshot = false
+		}
+		if lastApplied < commitIndex {
+			logSlice := rf.raftLog.slice(lastApplied+1, commitIndex+1)
+			for _, entry := range logSlice {
+				msgs = append(msgs, ApplyMsg{
+					SnapshotValid: false,
+					CommandValid:  entry.Command != nil, // if entry.Command == nil then is false
+					Command:       entry.Command,
+					CommandTerm:   entry.Term,
+					CommandIndex:  entry.Index,
+				})
 			}
 		}
+		rf.mu.Unlock()
+
+		for _, msg := range msgs {
+			rf.applyCh <- msg
+		}
+
 		rf.mu.Lock()
 		DPrintf("{Node %v} applies entries %v-%v in term %v", rf.me, rf.lastApplied, commitIndex, rf.currentTerm)
 		// use commitIndex rather than rf.commitIndex because rf.commitIndex may change during the Unlock() and Lock()

@@ -78,20 +78,22 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs, reply *InstallS
 
 	rf.persister.SaveStateAndSnapshot(rf.SaveState(), args.Snapshot)
 
-	applyMsg := ApplyMsg{
-		SnapshotValid: true,
-		Snapshot:      args.Snapshot,
-		SnapshotIndex: args.LastIncludedIndex,
-		SnapshotTerm:  args.LastIncludedTerm,
-	}
-	// TODO: make a commit queue
-	rf.applyCh <- applyMsg
-	// In this case we can't go rf.applyCh <- applyMsg, because this can't make sure the atomic of applyMsgs,
-	// this is because the commitIndex can be changed very quicky, so the applier might push
-	// an applyMsg that has commitIndex higher than lastIncludedIndex. This is why here we need to wait
-	// this SnapshotMsg to be pushed, but it is slow, the optimazition can be make a instance in rafe
-	// that store this information then single applyChan, if we find a validSnapshot we will put this
-	// msg in the begining of the sending entries.
+	rf.hasSnapshot = true
+	rf.applyCond.Signal()
+	// // OLD synchronized version
+	// // In this case we can't go rf.applyCh <- applyMsg, because this can't make sure the atomic of applyMsgs,
+	// // this is because the commitIndex can be changed very quicky, so the applier might push
+	// // an applyMsg that has commitIndex higher than lastIncludedIndex. This is why here we need to wait
+	// // this SnapshotMsg to be pushed, but it is slow, the optimazition can be make a hasSnapshot instance in rafe
+	// // that store this information then single applyChan, if we find a validSnapshot we will put this
+	// // msg in the begining of the sending entries.
+	// applyMsg := ApplyMsg{
+	// 	SnapshotValid: true,
+	// 	Snapshot:      args.Snapshot,
+	// 	SnapshotIndex: args.LastIncludedIndex,
+	// 	SnapshotTerm:  args.LastIncludedTerm,
+	// }
+	// rf.applyCh <- applyMsg
 }
 
 func (rf *Raft) processInstallSnapshotReply(peer int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
