@@ -107,15 +107,15 @@ func (rf *Raft) ticker() {
 	for !rf.killed() {
 		select {
 		case <-rf.electionTimer.C:
-			rf.electionTimer.Reset(RandomizedElectionTimeout())
 			rf.mu.Lock()
+			rf.electionTimer.Reset(RandomizedElectionTimeout())
 			if rf.state != StateLeader {
 				rf.StartElection()
 			}
 			rf.mu.Unlock()
 		case <-rf.heartbeatTimer.C:
-			rf.heartbeatTimer.Reset(StableHeartbeatTimeout())
 			rf.mu.Lock()
+			rf.heartbeatTimer.Reset(StableHeartbeatTimeout())
 			if rf.state == StateLeader {
 				go rf.BroadcastAppend(HeartBeat)
 			}

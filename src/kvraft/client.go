@@ -48,11 +48,11 @@ func (ck *Clerk) Command(args *CommandArgs) string {
 	args.ClientId, args.CommandId = ck.clientId, ck.commandId
 	for {
 		ch := make(chan *CommandReply, 1)
-		go func() {
+		go func(ch chan *CommandReply, args *CommandArgs, serverId int64) {
 			reply := new(CommandReply)
-			ck.servers[ck.leaderId].Call("KVServer.Command", args, reply)
+			ck.servers[serverId].Call("KVServer.Command", args, reply)
 			ch <- reply
-		}()
+		}(ch, args, ck.leaderId)
 
 		time_out := time.After(100 * time.Millisecond)
 		select {
