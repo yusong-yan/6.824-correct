@@ -54,13 +54,6 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 }
 
 func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
-	// prevent log getting too long when there is no enough servers to commit
-	// below code should be uncomment if raft/vote.go line36 (go rf.Start(nil)) got uncommented
-	// if kv.needSnapShot() {
-	// 	//println("Waiting for snapshot")
-	// 	reply.Err = ErrTimeout
-	// 	return
-	// }
 	op := Op{}
 	op.OpTask = args.Op
 	op.Key = args.Key
@@ -69,9 +62,6 @@ func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
 	op.CommandId = args.CommandId
 	op.Seq = nrand()
 
-	// we can just read the most updated version if there is duplicated
-	// even though this Get result might be different from the Get that has been committed
-	// it still gaurantee the linearizability of the system
 	kv.mu.Lock()
 	if kv.dupCommand(args.CommandId, args.ClientId) {
 		reply.Value, reply.Err = kv.storage.Get(args.Key)
@@ -131,17 +121,7 @@ func (kv *KVServer) listenApplyCh() {
 				kv.takeSnapShot(applyMessage.CommandIndex)
 			}
 		} else if applyMessage.SnapshotValid {
-			// since we will request installSnapshot before commitIndex, here it must be kv.lastApplied < applyMessage.SnapshotIndex
-			if kv.rf.CondInstallSnapshot(applyMessage.SnapshotTerm, applyMessage.CommandIndex, applyMessage.Snapshot) {
-				kv.replaceSnapshot(applyMessage.Snapshot)
-			}
-		} else {
-			// only happen when there is a new leader get elected and push a nil command
-			// this lab test doesn't support it. so we will never reach this step if we don't
-			// uncomment line 59 and raft/vote.go line36
-			if kv.needSnapShot() {
-				kv.takeSnapShot(applyMessage.CommandIndex)
-			}
+			kv.replaceSnapshot(applyMessage.Snapshot)
 		}
 		kv.mu.Unlock()
 	}

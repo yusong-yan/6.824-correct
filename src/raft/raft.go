@@ -178,7 +178,7 @@ func (rf *Raft) applier() {
 			for _, entry := range logSlice {
 				msgs = append(msgs, ApplyMsg{
 					SnapshotValid: false,
-					CommandValid:  entry.Command != nil, // if entry.Command == nil then is false
+					CommandValid:  true, // if entry.Command == nil then is false
 					Command:       entry.Command,
 					CommandTerm:   entry.Term,
 					CommandIndex:  entry.Index,

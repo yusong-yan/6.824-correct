@@ -22,12 +22,13 @@ func nrand() int64 {
 	x := bigx.Int64()
 	return x
 }
+
 func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	return &Clerk{
 		servers:      servers,
 		leaderId:     0,
 		clientId:     nrand(),
-		commandId:    1,
+		commandId:    0,
 		serverNumber: len(servers),
 	}
 }

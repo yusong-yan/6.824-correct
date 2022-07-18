@@ -13,7 +13,6 @@ func (rf *Raft) StartElection() {
 	args.LastLogTerm = lastLog.Term
 	rf.votedFor = rf.me
 	rf.persist()
-	DPrintf("{Node %v} starts election with RequestVoteRequest %v", rf.me, args)
 	// use Closure
 	grantedVotes := 1
 	for peer := range rf.peers {
@@ -31,9 +30,6 @@ func (rf *Raft) StartElection() {
 					if reply.VoteGranted {
 						grantedVotes += 1
 						if grantedVotes > len(rf.peers)/2 {
-							// prevent figure 8 happened
-							// here we don;t need to wait for new client request to commit entires with old term
-							// go rf.Start(nil)
 							rf.state = StateLeader
 							lastLogIndex := rf.raftLog.lastIndex()
 							for i := 0; i < len(rf.peers); i++ {

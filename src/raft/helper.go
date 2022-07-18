@@ -6,7 +6,6 @@ import (
 
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
-	// Your code here, if desired.
 	for peer := range rf.peers {
 		if peer == rf.me {
 			continue

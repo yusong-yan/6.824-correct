@@ -152,13 +152,9 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 		}
 		return
 	}
-	// This is old codes, which will fail under none fifo channel
-	// {
-	// // we connect entries with logs, by minimize the delete of rf.logs
+	// This is old codes, which will fail under none fifo network order
 	// rf.raftLog.trunc(args.PrevLogIndex + 1)
 	// rf.raftLog.append(args.Entries...)
-	// }
-
 	for index, entry := range args.Entries {
 		if rf.raftLog.convertIndex(entry.Index) >= rf.raftLog.len() || rf.raftLog.getEntry(entry.Index).Term != entry.Term {
 			rf.raftLog.trunc(entry.Index)
