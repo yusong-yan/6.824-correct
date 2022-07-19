@@ -214,7 +214,6 @@ func (rf *Raft) SaveState() []byte {
 	e.Encode(rf.raftLog.getLogs())
 	return w.Bytes()
 }
-
 func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
@@ -233,4 +232,15 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.votedFor = VotedFor
 		rf.raftLog.setLogs(logs)
 	}
+}
+
+func (rf *Raft) GetState() (int, bool) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	isleader := false
+	term := rf.currentTerm
+	if rf.state == StateLeader {
+		isleader = true
+	}
+	return term, isleader
 }

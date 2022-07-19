@@ -54,6 +54,8 @@ func (rf *Raft) HandleInstallSnapshot(args *InstallSnapshotArgs, reply *InstallS
 }
 
 func (rf *Raft) processInstallSnapshotReply(peer int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	if reply.Term > rf.currentTerm {
 		rf.currentTerm = reply.Term
 		rf.votedFor = -1
@@ -64,6 +66,11 @@ func (rf *Raft) processInstallSnapshotReply(peer int, args *InstallSnapshotArgs,
 		rf.matchIndex[peer] = args.LastIncludedIndex
 		rf.nextIndex[peer] = args.LastIncludedIndex + 1
 	}
+}
+
+func (rf *Raft) sendInstallSnapshot(server int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) bool {
+	ok := rf.peers[server].Call("Raft.HandleInstallSnapshot", args, reply)
+	return ok
 }
 
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {

@@ -35,9 +35,7 @@ func (rf *Raft) appendOneRound(peer int) {
 		rf.mu.RUnlock()
 		reply := new(InstallSnapshotReply)
 		if rf.sendInstallSnapshot(peer, args, reply) {
-			rf.mu.Lock()
 			rf.processInstallSnapshotReply(peer, args, reply)
-			rf.mu.Unlock()
 		}
 	} else {
 		if prevLogIndex > rf.raftLog.lastIndex() {
@@ -66,6 +64,8 @@ func (rf *Raft) appendOneRound(peer int) {
 	}
 }
 func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	if reply.Term > rf.currentTerm {
 		rf.currentTerm = reply.Term
 		rf.votedFor = -1
@@ -161,4 +161,9 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 		rf.applyCond.Signal()
 	}
 	reply.Term, reply.Success = rf.currentTerm, true
+}
+
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.HandleAppendEntries", args, reply)
+	return ok
 }
