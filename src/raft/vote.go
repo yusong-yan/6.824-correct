@@ -31,11 +31,10 @@ func (rf *Raft) StartElection() {
 						grantedVotes += 1
 						if grantedVotes > len(rf.peers)/2 {
 							rf.state = StateLeader
-							lastLogIndex := rf.raftLog.lastIndex()
 							for i := 0; i < len(rf.peers); i++ {
 								// if we don't set rf.matchIndex[i] == 0, there will be error in unreliable test
 								rf.matchIndex[i] = 0
-								rf.nextIndex[i] = lastLogIndex + 1
+								rf.nextIndex[i] = rf.raftLog.lastIndex() + 1
 							}
 							rf.heartbeatTimer.Reset(StableHeartbeatTimeout())
 							rf.BroadcastAppend(HeartBeat)

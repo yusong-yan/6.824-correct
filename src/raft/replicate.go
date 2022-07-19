@@ -75,14 +75,8 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 	} else if reply.Term == rf.currentTerm && rf.state == StateLeader &&
 		args.Term == rf.currentTerm && args.PrevLogIndex == rf.nextIndex[peer]-1 {
 		if reply.Success {
-			newNext := len(args.Entries) + args.PrevLogIndex + 1
-			newMatch := len(args.Entries) + args.PrevLogIndex
-			if newNext > rf.nextIndex[peer] {
-				rf.nextIndex[peer] = newNext
-			}
-			if newMatch > rf.matchIndex[peer] {
-				rf.matchIndex[peer] = newMatch
-			}
+			rf.matchIndex[peer] = len(args.Entries) + args.PrevLogIndex
+			rf.nextIndex[peer] = rf.matchIndex[peer] + 1
 			rf.advanceCommitIndexForLeader()
 		} else {
 			// here we are sure that reply.ConflictIndex will be
@@ -95,9 +89,6 @@ func (rf *Raft) processAppendEntriesReply(peer int, args *AppendEntriesArgs, rep
 	}
 }
 func (rf *Raft) advanceCommitIndexForLeader() {
-	if rf.state != StateLeader {
-		return
-	}
 	for i := rf.raftLog.lastIndex(); i > rf.commitIndex; i-- {
 		num := 0
 		for j := range rf.peers {
@@ -140,8 +131,10 @@ func (rf *Raft) HandleAppendEntries(args *AppendEntriesArgs, reply *AppendEntrie
 		reply.Term, reply.Success = rf.currentTerm, false
 		lastIndex := rf.raftLog.lastIndex()
 		if args.PrevLogIndex > lastIndex {
+			// log is way to small
 			reply.ConflictIndex = lastIndex + 1
 		} else {
+			// log dismatch
 			dummyIndex := rf.raftLog.dummyIndex()
 			abandondRound := rf.raftLog.getEntry(args.PrevLogIndex).Term
 			index := args.PrevLogIndex

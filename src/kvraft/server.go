@@ -47,7 +47,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.storage = NewMemoryKV()
 	kv.latestTime = make(map[int64]int64)
 	kv.waitChannel = make(map[int64]chan bool)
-	kv.replaceSnapshot(persister.ReadSnapshot())
+	kv.installSnapshot(persister.ReadSnapshot())
 	kv.persister = persister
 	go kv.listenApplyCh()
 	return kv
@@ -121,7 +121,7 @@ func (kv *KVServer) listenApplyCh() {
 				kv.takeSnapShot(applyMessage.CommandIndex)
 			}
 		} else if applyMessage.SnapshotValid {
-			kv.replaceSnapshot(applyMessage.Snapshot)
+			kv.installSnapshot(applyMessage.Snapshot)
 		}
 		kv.mu.Unlock()
 	}
@@ -156,7 +156,7 @@ func (kv *KVServer) takeSnapShot(index int) {
 	kv.rf.Snapshot(index, snapShot)
 }
 
-func (kv *KVServer) replaceSnapshot(data []byte) {
+func (kv *KVServer) installSnapshot(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}

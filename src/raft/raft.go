@@ -161,10 +161,12 @@ func (rf *Raft) applier() {
 				return
 			}
 		}
+
 		commitIndex, lastApplied := rf.commitIndex, rf.lastApplied
-		msgs := make([]ApplyMsg, 0)
+		readyApply := make([]ApplyMsg, 0)
+
 		if rf.hasSnapshot {
-			msgs = append(msgs, ApplyMsg{
+			readyApply = append(readyApply, ApplyMsg{
 				SnapshotValid: true,
 				CommandValid:  false,
 				Snapshot:      rf.persister.ReadSnapshot(),
@@ -173,10 +175,11 @@ func (rf *Raft) applier() {
 			})
 			rf.hasSnapshot = false
 		}
+
 		if lastApplied < commitIndex {
 			logSlice := rf.raftLog.slice(lastApplied+1, commitIndex+1)
 			for _, entry := range logSlice {
-				msgs = append(msgs, ApplyMsg{
+				readyApply = append(readyApply, ApplyMsg{
 					SnapshotValid: false,
 					CommandValid:  true, // if entry.Command == nil then is false
 					Command:       entry.Command,
@@ -187,7 +190,7 @@ func (rf *Raft) applier() {
 		}
 		rf.mu.Unlock()
 
-		for _, msg := range msgs {
+		for _, msg := range readyApply {
 			rf.applyCh <- msg
 		}
 
