@@ -131,6 +131,24 @@ const (
 
 type Err string
 
+type CommandArgs struct {
+	Servers   map[int][]string // new GID -> servers mappings
+	ClientId  int64
+	CommandId uint64
+	GIDs      []int
+	Num       int // desired config number
+	Config    Config
+	Shard     int
+	GID       int
+	Type      OpType
+}
+
+type CommandReply struct {
+	WrongLeader bool
+	Err         Err
+	Config      Config
+}
+
 type JoinArgs struct {
 	Servers   map[int][]string // new GID -> servers mappings
 	ClientId  int64

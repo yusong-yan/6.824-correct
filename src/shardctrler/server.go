@@ -28,9 +28,8 @@ type ShardCtrler struct {
 
 	configs []Config // indexed by config num
 
-	chans                         map[int64]chan bool
-	latestTime                    map[int64]uint64
-	client_to_last_process_result map[int64]OpResult
+	chans      map[int64]chan bool
+	latestTime map[int64]uint64
 }
 
 type Op struct {
@@ -46,14 +45,8 @@ type Op struct {
 	ServerSeq int64
 }
 
-type OpResult struct {
-	Config Config
-	Error  Err
-}
-
-func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
+func (sc *ShardCtrler) Command(args *CommandArgs, reply *CommandReply) {
 	// Your code here.
-
 	sc.mu.Lock()
 	if sc.dupCommand(args.CommandId, args.ClientId) {
 		sc.mu.Unlock()
@@ -62,132 +55,21 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 	sc.mu.Unlock()
 
 	op := Op{
-		Type:      JOIN,
+		Type:      args.Type,
 		Servers:   args.Servers,
 		ClientId:  args.ClientId,
 		CommandId: args.CommandId,
 		ServerSeq: nrand(),
-	}
-	rec_chan := make(chan bool, 1)
-	sc.mu.Lock()
-	sc.chans[op.ServerSeq] = rec_chan
-	sc.mu.Unlock()
-	if _, _, ok1 := sc.rf.Start(op); ok1 {
-		timer := time.After(TIMEOUT * time.Millisecond)
-		select {
-		case <-timer:
-			// timeout!
-			reply.Err = "TIMEOUT"
-			reply.WrongLeader = true
-		case <-rec_chan:
-			// this op has be processed!
-		}
-	} else {
-		reply.WrongLeader = true
-	}
-	sc.mu.Lock()
-	delete(sc.chans, op.ServerSeq)
-	sc.mu.Unlock()
-
-}
-
-func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
-	// Your code here.
-	// Your code here.
-	sc.mu.Lock()
-	if sc.dupCommand(args.CommandId, args.ClientId) {
-		sc.mu.Unlock()
-		return
-	}
-	sc.mu.Unlock()
-
-	op := Op{
-		Type:      LEAVE,
-		GID:       args.GIDs,
-		ClientId:  args.ClientId,
-		CommandId: args.CommandId,
-		ServerSeq: nrand(),
-	}
-	rec_chan := make(chan bool, 1)
-	sc.mu.Lock()
-	sc.chans[op.ServerSeq] = rec_chan
-	sc.mu.Unlock()
-	if _, _, ok1 := sc.rf.Start(op); ok1 {
-		timer := time.After(TIMEOUT * time.Millisecond)
-		select {
-		case <-timer:
-			// timeout!
-			reply.Err = "TIMEOUT"
-			reply.WrongLeader = true
-		case <-rec_chan:
-			// this op has be processed!
-		}
-	} else {
-		reply.WrongLeader = true
-	}
-	sc.mu.Lock()
-	delete(sc.chans, op.ServerSeq)
-	sc.mu.Unlock()
-}
-
-func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
-	// Your code here.
-	// Your code here.
-	sc.mu.Lock()
-	if sc.dupCommand(args.CommandId, args.ClientId) {
-		sc.mu.Unlock()
-		return
-	}
-	sc.mu.Unlock()
-
-	op := Op{
-		Type:      MOVE,
 		Shard:     args.Shard,
-		GID:       make([]int, 1),
-		ClientId:  args.ClientId,
-		CommandId: args.CommandId,
-		ServerSeq: nrand(),
-	}
-	op.GID[0] = args.GID
-	rec_chan := make(chan bool, 1)
-	sc.mu.Lock()
-	sc.chans[op.ServerSeq] = rec_chan
-	sc.mu.Unlock()
-	if _, _, ok1 := sc.rf.Start(op); ok1 {
-		timer := time.After(TIMEOUT * time.Millisecond)
-		select {
-		case <-timer:
-			// timeout!
-			reply.Err = "TIMEOUT"
-			reply.WrongLeader = true
-		case <-rec_chan:
-			// this op has be processed!
-		}
-	} else {
-		reply.WrongLeader = true
-	}
-	sc.mu.Lock()
-	delete(sc.chans, op.ServerSeq)
-	sc.mu.Unlock()
-}
-
-func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
-	// Your code here.
-	// Your code here.
-	sc.mu.Lock()
-	if sc.dupCommand(args.CommandId, args.ClientId) {
-		sc.mu.Unlock()
-		return
-	}
-	sc.mu.Unlock()
-
-	op := Op{
-		Type:      QUERY,
 		Num:       args.Num,
-		ClientId:  args.ClientId,
-		CommandId: args.CommandId,
-		ServerSeq: nrand(),
 	}
+	if args.Type == LEAVE {
+		op.GID = args.GIDs
+	} else if args.Type == MOVE {
+		op.GID = make([]int, 1)
+		op.GID[0] = args.GID
+	}
+
 	rec_chan := make(chan bool, 1)
 	sc.mu.Lock()
 	sc.chans[op.ServerSeq] = rec_chan
@@ -201,11 +83,13 @@ func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 			reply.WrongLeader = true
 		case <-rec_chan:
 			// this op has be processed!
-			res_idx := op.Num
-			if op.Num == -1 || op.Num >= len(sc.configs) {
-				res_idx = len(sc.configs) - 1
+			if args.Type == QUERY {
+				res_idx := op.Num
+				if op.Num == -1 || op.Num >= len(sc.configs) {
+					res_idx = len(sc.configs) - 1
+				}
+				reply.Config = sc.configs[res_idx]
 			}
-			reply.Config = sc.configs[res_idx]
 		}
 	} else {
 		reply.WrongLeader = true
@@ -231,63 +115,41 @@ func (sc *ShardCtrler) Raft() *raft.Raft {
 	return sc.rf
 }
 
-func (sc *ShardCtrler) update(op Op, res OpResult) {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-	sc.latestTime[op.ClientId] = op.CommandId
-	sc.client_to_last_process_result[op.ClientId] = res
-}
-
 // check whether need to process
 func (sc *ShardCtrler) dupCommand(commandId uint64, clientId int64) bool {
 	latestId, exist := sc.latestTime[clientId]
 	return exist && commandId <= latestId
 }
 
-func (sc *ShardCtrler) process() {
+func (sc *ShardCtrler) listenApplyCh() {
 	for command := range sc.applyCh {
 		if command.CommandValid {
 			op := command.Command.(Op)
 			if !sc.dupCommand(op.CommandId, op.ClientId) {
 				switch op.Type {
-				case QUERY:
-					res := OpResult{}
-					res_idx := op.Num
-					if op.Num == -1 || op.Num >= len(sc.configs) {
-						res_idx = len(sc.configs) - 1
-					}
-					res.Config = sc.configs[res_idx]
-					res.Error = OK
-					sc.update(op, res)
 				case JOIN:
-					res := OpResult{}
 					new_config := CopyConfig(&sc.configs[len(sc.configs)-1])
 					for k, v := range op.Servers {
 						new_config.Groups[k] = v
 					}
 					new_config.ReAllocGID()
 					sc.configs = append(sc.configs, new_config)
-					res.Error = OK
-					sc.update(op, res)
 				case LEAVE:
-					res := OpResult{}
 					new_config := CopyConfig(&sc.configs[len(sc.configs)-1])
 					for _, i := range op.GID {
 						delete(new_config.Groups, i)
 					}
 					new_config.ReAllocGID()
 					sc.configs = append(sc.configs, new_config)
-					res.Error = OK
-					sc.update(op, res)
 				case MOVE:
-					res := OpResult{}
 					new_config := CopyConfig(&sc.configs[len(sc.configs)-1])
 					new_config.Shards[op.Shard] = op.GID[0]
 					sc.configs = append(sc.configs, new_config)
-					res.Error = OK
-					sc.update(op, res)
 				default:
 				}
+				sc.mu.Lock()
+				sc.latestTime[op.ClientId] = op.CommandId
+				sc.mu.Unlock()
 			}
 			if currentTerm, isLeader := sc.rf.GetState(); isLeader && command.CommandTerm == currentTerm {
 				c, ok := sc.chans[op.ServerSeq]
@@ -314,8 +176,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister)
 
 	sc.chans = make(map[int64]chan bool)
 	sc.latestTime = make(map[int64]uint64)
-	sc.client_to_last_process_result = make(map[int64]OpResult)
 
-	go sc.process()
+	go sc.listenApplyCh()
 	return sc
 }
