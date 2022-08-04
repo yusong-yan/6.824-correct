@@ -52,7 +52,7 @@ func (ck *Clerk) Command(num int, servers map[int][]string, gids []int, shard in
 	for {
 		// try each known server.
 		for _, srv := range ck.servers {
-			var reply QueryReply
+			var reply CommandReply
 			ok := srv.Call("ShardCtrler.Command", args, &reply)
 			if ok && !reply.WrongLeader {
 				return reply.Config
