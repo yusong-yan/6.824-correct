@@ -50,8 +50,40 @@ func GetRandomKey(mp map[int][]string) int {
 	return 0
 }
 
-// naive allocte method.
-// need to optimize.
+func GetGIDWithMinimumShards(g2s map[int][]int) int {
+	// make iteration deterministic
+	var keys []int
+	for k := range g2s {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+	// find GID with minimum shards
+	index, min := -1, NShards+1
+	for _, gid := range keys {
+		if gid != 0 && len(g2s[gid]) < min {
+			index, min = gid, len(g2s[gid])
+		}
+	}
+	return index
+}
+
+func GetGIDWithMaximumShards(g2s map[int][]int) int {
+	// make iteration deterministic
+	var keys []int
+	for k := range g2s {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+	// find GID with maximum shards
+	index, max := -1, -1
+	for _, gid := range keys {
+		if len(g2s[gid]) > max {
+			index, max = gid, len(g2s[gid])
+		}
+	}
+	return index
+}
+
 func (cfg *Config) ReAllocGID() {
 	if len(cfg.Groups) == 0 {
 		for i := 0; i < NShards; i++ {
@@ -60,69 +92,43 @@ func (cfg *Config) ReAllocGID() {
 		return
 	}
 
-	// remove gids
+	g2s := make(map[int][]int)
+	for g := range cfg.Groups {
+		g2s[g] = []int{}
+	}
+	for s, g := range cfg.Shards {
+		_, find := g2s[g]
+		if g != 0 && find {
+			g2s[g] = append(g2s[g], s)
+		}
+	}
+
+	// for leave
 	for i := 0; i < NShards; i++ {
 		if _, ok := cfg.Groups[cfg.Shards[i]]; !ok {
-			cfg.Shards[i] = 0
+			gid := GetGIDWithMinimumShards(g2s)
+			cfg.Shards[i] = gid
+			g2s[gid] = append(g2s[gid], i)
 		}
 	}
-
-	grp2Cnt := make(map[int]int)
-	for g := range cfg.Groups {
-		grp2Cnt[g] = 0
+	// for join
+	for {
+		source, target := GetGIDWithMaximumShards(g2s), GetGIDWithMinimumShards(g2s)
+		if source != 0 && len(g2s[source])-len(g2s[target]) <= 1 {
+			break
+		}
+		g2s[target] = append(g2s[target], g2s[source][0])
+		g2s[source] = g2s[source][1:]
 	}
-	for _, g := range cfg.Shards {
-		if g != 0 {
-			grp2Cnt[g]++
+
+	// update cfg.Shards
+	var newShards [NShards]int
+	for gid, shards := range g2s {
+		for _, shard := range shards {
+			newShards[shard] = gid
 		}
 	}
-
-	avg_cnt := NShards / len(cfg.Groups)
-
-	remain := NShards - avg_cnt*len(cfg.Groups)
-	cur_remain := 0
-	less_g := make([]int, 0)
-	equal_avg := make([]int, 0)
-	for k, v := range grp2Cnt {
-		if v < avg_cnt {
-			less_g = append(less_g, k)
-		} else if v == avg_cnt+1 {
-			cur_remain++
-		} else if v == avg_cnt {
-			equal_avg = append(equal_avg, k)
-		}
-	}
-
-	// because itera the map is not same, so we need to sort
-	sort.Ints(less_g)
-	sort.Ints(equal_avg)
-
-	// move Shard
-	for i, g := range cfg.Shards {
-		if g == 0 || grp2Cnt[g] > avg_cnt+1 || (grp2Cnt[g] == avg_cnt+1 && cur_remain > remain) {
-			if len(less_g) != 0 {
-				cfg.Shards[i] = less_g[0]
-				grp2Cnt[less_g[0]]++
-				if grp2Cnt[less_g[0]] == avg_cnt {
-					equal_avg = append(equal_avg, less_g[0])
-					less_g = less_g[1:]
-				}
-			} else {
-				cfg.Shards[i] = equal_avg[0]
-				grp2Cnt[equal_avg[0]]++
-				equal_avg = equal_avg[1:]
-				cur_remain++
-			}
-			if g != 0 {
-				grp2Cnt[g]--
-				if grp2Cnt[g] == avg_cnt+1 {
-					cur_remain++
-				} else if grp2Cnt[g] == avg_cnt {
-					cur_remain--
-				}
-			}
-		}
-	}
+	cfg.Shards = newShards
 }
 
 const (

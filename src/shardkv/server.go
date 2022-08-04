@@ -1,9 +1,12 @@
 package shardkv
 
-import "raft/labrpc"
-import "raft/raft"
-import "sync"
-import "raft/labgob"
+import (
+	"raft/labgob"
+	"raft/labrpc"
+	"raft/raft"
+	"raft/shardctrler"
+	"sync"
+)
 
 type Op struct {
 	// Your definitions here.
@@ -20,8 +23,8 @@ type ShardKV struct {
 	gid          int
 	ctrlers      []*labrpc.ClientEnd
 	maxraftstate int // snapshot if log grows this big
-
 	// Your definitions here.
+	ctrlerClient *shardctrler.Clerk
 }
 
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
@@ -86,7 +89,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	// Your initialization code here.
 
 	// Use something like this to talk to the shardctrler:
-	// kv.mck = shardctrler.MakeClerk(kv.ctrlers)
+	kv.ctrlerClient = shardctrler.MakeClerk(kv.ctrlers)
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
